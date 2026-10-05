@@ -14,7 +14,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAC_hzJVQNLC660Kcox7rY9UY7DLIvjpAw",
+  apiKey: "AIzaSyAC_hzJVQNLC660Kcox7rY9UY7DLIVjpAw",
   authDomain: "pony-game-7e138.firebaseapp.com",
   projectId: "pony-game-7e138",
   storageBucket: "pony-game-7e138.firebasestorage.app",
