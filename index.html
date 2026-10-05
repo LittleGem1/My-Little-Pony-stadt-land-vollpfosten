@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#6f4cff">
-  <title>Stadt Land Vollpfosten – MLP Multiplayer</title>
+  <title>Stadt Land Vollpfosten – MLP Multiplayer Levels</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
     <header class="hero">
       <p class="eyebrow">FAN GAME · MLP ONLY · MULTIPLAYER</p>
       <h1>Stadt Land Vollpfosten<br><span>MLP Edition</span></h1>
-      <p class="hero-copy">Gemeinsamer Raum, gemeinsamer Buchstabe, gemeinsamer Timer – und maximaler Pony-Chaosfaktor.</p>
+      <p class="hero-copy">Gemeinsame Räume, echte Level-Regeln, synchroner Timer – und maximaler Pony-Chaosfaktor.</p>
       <div class="connection-pill" id="connectionStatus">Verbinde mit Firebase …</div>
     </header>
 
@@ -25,37 +25,51 @@
         <div class="badge" id="categoryCountBadge">77 Kategorien</div>
       </div>
 
+      <div class="profile-summary">
+        <div>
+          <strong>Dein Profil</strong>
+          <span>Dein Name und deine Siege werden in diesem Browser gespeichert.</span>
+        </div>
+        <div class="profile-wins" id="profileWinsBadge">🏆 0 Siege</div>
+      </div>
+
       <div class="setup-grid">
         <label class="field field-wide">
           <span>Dein Spielername</span>
           <input id="playerName" type="text" maxlength="24" placeholder="z. B. Little Gem" autocomplete="nickname">
         </label>
         <label class="field">
-          <span>Kategorien pro Runde <small>(für neuen Raum)</small></span>
+          <span>Begriffe im Spiel <small>(für neuen Raum)</small></span>
           <select id="categoryAmount">
-            <option value="6">6 Kategorien</option>
-            <option value="8">8 Kategorien</option>
-            <option value="10" selected>10 Kategorien</option>
-            <option value="12">12 Kategorien</option>
-            <option value="15">15 Kategorien</option>
+            <option value="10" selected>10 Begriffe</option>
+            <option value="20">20 Begriffe</option>
+            <option value="30">30 Begriffe</option>
+            <option value="40">40 Begriffe</option>
+            <option value="50">50 Begriffe</option>
+            <option value="60">60 Begriffe</option>
+            <option value="70">70 Begriffe</option>
           </select>
         </label>
         <label class="field">
-          <span>Zeit pro Runde <small>(für neuen Raum)</small></span>
+          <span>Zeit pro Aufgabe <small>(für neuen Raum)</small></span>
           <select id="timerLength">
             <option value="60">60 Sekunden</option>
             <option value="90" selected>90 Sekunden</option>
             <option value="120">120 Sekunden</option>
             <option value="180">180 Sekunden</option>
-            <option value="0">Ohne Timer</option>
           </select>
         </label>
+      </div>
+
+      <div class="level-preview">
+        <strong>So läuft ein 10er-Levelblock:</strong>
+        <span>4 Fragen / 4 Buchstaben → 3 Fragen einzeln → 2 Fragen / 1 Buchstabe → 1 Frage / 2 Antworten</span>
       </div>
 
       <div class="room-actions">
         <div class="room-card">
           <h3>Neuen Raum erstellen</h3>
-          <p>Du wirst Host und startest die Runden.</p>
+          <p>Du wirst Host und startest die Level.</p>
           <button class="btn btn-primary" id="createRoomBtn" type="button">Raum erstellen</button>
         </div>
         <div class="room-card">
@@ -90,25 +104,26 @@
           <div id="playerList" class="player-list"></div>
         </div>
         <div class="settings-card">
-          <h3>Rundeneinstellungen</h3>
+          <h3>Spieleinstellungen</h3>
           <label class="field">
-            <span>Kategorien pro Runde</span>
+            <span>Begriffe im Spiel</span>
             <select id="lobbyCategoryAmount">
-              <option value="6">6 Kategorien</option>
-              <option value="8">8 Kategorien</option>
-              <option value="10">10 Kategorien</option>
-              <option value="12">12 Kategorien</option>
-              <option value="15">15 Kategorien</option>
+              <option value="10">10 Begriffe</option>
+              <option value="20">20 Begriffe</option>
+              <option value="30">30 Begriffe</option>
+              <option value="40">40 Begriffe</option>
+              <option value="50">50 Begriffe</option>
+              <option value="60">60 Begriffe</option>
+              <option value="70">70 Begriffe</option>
             </select>
           </label>
           <label class="field">
-            <span>Zeit pro Runde</span>
+            <span>Zeit pro Aufgabe</span>
             <select id="lobbyTimerLength">
               <option value="60">60 Sekunden</option>
               <option value="90">90 Sekunden</option>
               <option value="120">120 Sekunden</option>
               <option value="180">180 Sekunden</option>
-              <option value="0">Ohne Timer</option>
             </select>
           </label>
           <p class="helper compact" id="hostSettingsHint">Nur der Host kann diese Einstellungen ändern.</p>
@@ -116,7 +131,7 @@
       </div>
 
       <div class="button-row">
-        <button class="btn btn-primary host-only hidden" id="hostStartBtn" type="button">Erste Runde starten</button>
+        <button class="btn btn-primary host-only hidden" id="hostStartBtn" type="button">Spiel starten</button>
         <button class="btn btn-secondary" id="leaveRoomBtn" type="button">Raum verlassen</button>
       </div>
     </section>
@@ -124,12 +139,13 @@
     <section class="panel game-panel hidden" id="gamePanel">
       <div class="round-topbar">
         <div>
-          <p class="kicker" id="roundLabel">Runde 1 · Raum ------</p>
+          <p class="kicker" id="roundLabel">Level 1 · Raum ------</p>
           <h2 id="playerDisplay">Los geht's!</h2>
+          <p class="level-instruction" id="levelInstruction"></p>
         </div>
         <div class="game-stats">
           <div class="stat-card letter-card">
-            <span>Buchstabe</span>
+            <span id="letterStatLabel">Buchstabe</span>
             <strong id="letterDisplay">A</strong>
           </div>
           <div class="stat-card timer-card" id="timerCard">
@@ -144,7 +160,7 @@
       </div>
 
       <div class="letter-actions host-only hidden" id="hostRoundControls">
-        <button class="btn btn-small btn-secondary" id="newLetterBtn" type="button">Anderer Buchstabe für alle</button>
+        <button class="btn btn-small btn-secondary" id="newLetterBtn" type="button">Buchstaben neu ziehen</button>
         <button class="btn btn-small btn-secondary" id="restartTimerBtn" type="button">Timer für alle neu</button>
       </div>
 
@@ -153,28 +169,28 @@
       <div class="button-row sticky-actions">
         <button class="btn btn-danger" id="stopRoundBtn" type="button">STOP FÜR ALLE!</button>
       </div>
-      <p class="helper centered">Jeder Spieler kann STOP drücken. Dann endet die Runde gleichzeitig für alle.</p>
+      <p class="helper centered" id="stopHint">Jeder Spieler kann STOP drücken.</p>
     </section>
 
     <section class="panel score-panel hidden" id="scorePanel">
       <div class="section-heading">
         <div>
-          <p class="kicker" id="scoreRoundLabel">Auswertung · Runde 1</p>
+          <p class="kicker" id="scoreRoundLabel">Auswertung · Level 1</p>
           <h2>Antworten vergleichen</h2>
         </div>
-        <div class="score-total"><span>Deine Runde</span><strong id="roundScoreDisplay">0</strong></div>
+        <div class="score-total"><span>Dein Level</span><strong id="roundScoreDisplay">0</strong></div>
       </div>
-      <p class="helper">Vergleicht eure Antworten gemeinsam. Du vergibst nur für deine eigene Antwort Punkte: 20 = einzigartig, 10 = gültig aber doppelt, 5 = diskutabel, 0 = nope.</p>
+      <p class="helper">Vergleicht eure Antworten gemeinsam. Du vergibst nur für deine eigenen Antworten Punkte: 20 = einzigartig, 10 = gültig aber doppelt, 5 = diskutabel, 0 = nope.</p>
       <div id="scoreList" class="score-list multiplayer-score-list"></div>
       <div class="ready-row">
         <button class="btn btn-secondary" id="readyBtn" type="button">Meine Bewertung ist fertig</button>
         <span id="readyStatus" class="helper compact">0/0 Spieler fertig</span>
       </div>
       <div class="button-row">
-        <button class="btn btn-primary host-only hidden" id="nextRoundBtn" type="button">Nächste Runde starten</button>
-        <button class="btn btn-secondary host-only hidden" id="finishGameBtn" type="button">Spiel beenden</button>
+        <button class="btn btn-primary host-only hidden" id="nextRoundBtn" type="button">Nächstes Level starten</button>
+        <button class="btn btn-secondary host-only hidden" id="finishGameBtn" type="button">Spiel vorzeitig beenden</button>
       </div>
-      <p class="helper centered non-host-wait hidden" id="waitForHostText">Warte darauf, dass der Host die nächste Runde startet.</p>
+      <p class="helper centered non-host-wait hidden" id="waitForHostText">Warte darauf, dass der Host das nächste Level startet.</p>
     </section>
 
     <section class="panel end-panel hidden" id="endPanel">
@@ -201,6 +217,17 @@
       </div>
       <ol id="categoriesList" class="categories-list"></ol>
     </dialog>
+
+    <div class="winner-popup hidden" id="winnerPopup" role="dialog" aria-modal="true" aria-labelledby="winnerTitle">
+      <div class="winner-card">
+        <button class="winner-close" id="winnerCloseBtn" type="button" aria-label="Gewinner-Fenster schließen">✕</button>
+        <div class="winner-crown" aria-hidden="true">👑</div>
+        <p class="kicker">Gewinner</p>
+        <h2 id="winnerTitle">Pony-Champion!</h2>
+        <p id="winnerName">Little Gem</p>
+        <span id="winnerScore">0 Punkte</span>
+      </div>
+    </div>
   </main>
 
   <footer>

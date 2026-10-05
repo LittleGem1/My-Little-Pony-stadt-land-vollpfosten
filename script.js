@@ -110,6 +110,8 @@ const CATEGORIES = [
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").filter(letter => !["Q", "X", "Y"].includes(letter));
 const ROOM_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const PROFILE_KEY = "mlp-slv-profile-v2";
+const LEVEL_ORDER = ["four-different", "three-sequential", "two-same", "one-double"];
 
 const state = {
   user: null,
@@ -122,7 +124,10 @@ const state = {
   timerId: null,
   renderKey: "",
   localRoundKey: "",
-  playerName: ""
+  playerName: "",
+  profileWins: 0,
+  profileLoaded: false,
+  winnerPopupKey: ""
 };
 
 const $ = id => document.getElementById(id);
@@ -145,14 +150,9 @@ function escapeHtml(value) {
 
 function showPanel(panel) {
   const wasAlreadyVisible = !panel.classList.contains("hidden");
-
   [setupPanel, lobbyPanel, gamePanel, scorePanel, endPanel].forEach(p => p.classList.add("hidden"));
   panel.classList.remove("hidden");
-
-  if (!wasAlreadyVisible) {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-}
+  if (!wasAlreadyVisible) window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function setSetupMessage(message, isError = false) {
@@ -168,6 +168,77 @@ function setConnection(text, mode = "") {
   if (mode) el.classList.add(mode);
 }
 
+function readLocalProfile() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}");
+    return {
+      name: String(parsed.name || "").slice(0, 24),
+      wins: Math.max(0, Number(parsed.wins || 0) || 0)
+    };
+  } catch {
+    return { name: "", wins: 0 };
+  }
+}
+
+function writeLocalProfile(name = state.playerName, wins = state.profileWins) {
+  try {
+    localStorage.setItem(PROFILE_KEY, JSON.stringify({
+      name: String(name || "").slice(0, 24),
+      wins: Math.max(0, Number(wins || 0) || 0)
+    }));
+  } catch (error) {
+    console.warn("Profil konnte lokal nicht gespeichert werden", error);
+  }
+}
+
+function updateProfileBadge() {
+  $("profileWinsBadge").textContent = `🏆 ${state.profileWins} ${state.profileWins === 1 ? "Sieg" : "Siege"}`;
+}
+
+async function loadProfileForUser() {
+  if (!state.user) return;
+  const local = readLocalProfile();
+  let remote = {};
+  try {
+    remote = (await get(ref(db, `profiles/${state.user.uid}`))).val() || {};
+  } catch (error) {
+    console.warn("Firebase-Profil konnte nicht geladen werden", error);
+  }
+
+  state.playerName = local.name || String(remote.name || "").slice(0, 24);
+  state.profileWins = Math.max(Number(local.wins || 0), Number(remote.wins || 0));
+  state.profileLoaded = true;
+
+  if (state.playerName && !$("playerName").value) $("playerName").value = state.playerName;
+  updateProfileBadge();
+  writeLocalProfile();
+
+  try {
+    await update(ref(db, `profiles/${state.user.uid}`), {
+      name: state.playerName || String(remote.name || ""),
+      wins: state.profileWins,
+      lastSeenAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.warn("Firebase-Profil konnte nicht synchronisiert werden", error);
+  }
+}
+
+async function saveProfileName(name) {
+  state.playerName = String(name || "").trim().slice(0, 24);
+  writeLocalProfile();
+  if (!state.user) return;
+  try {
+    await update(ref(db, `profiles/${state.user.uid}`), {
+      name: state.playerName,
+      wins: state.profileWins,
+      lastSeenAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.warn("Name konnte nicht im Profil gespeichert werden", error);
+  }
+}
+
 function cleanName() {
   return $("playerName").value.trim().slice(0, 24);
 }
@@ -178,15 +249,21 @@ function normalizeRoomCode(value) {
 
 function randomRoomCode() {
   let result = "";
-  for (let i = 0; i < 6; i += 1) {
-    result += ROOM_CHARS[Math.floor(Math.random() * ROOM_CHARS.length)];
-  }
+  for (let i = 0; i < 6; i += 1) result += ROOM_CHARS[Math.floor(Math.random() * ROOM_CHARS.length)];
   return result;
 }
 
 function randomLetter(exclude = "") {
-  const options = LETTERS.filter(letter => letter !== exclude);
+  const excluded = new Set(Array.isArray(exclude) ? exclude : [exclude]);
+  const options = LETTERS.filter(letter => !excluded.has(letter));
   return options[Math.floor(Math.random() * options.length)];
+}
+
+function randomUniqueLetters(count, exclude = []) {
+  const excluded = new Set(Array.isArray(exclude) ? exclude : [exclude]);
+  const options = LETTERS.filter(letter => !excluded.has(letter)).sort(() => Math.random() - 0.5);
+  if (options.length >= count) return options.slice(0, count);
+  return LETTERS.slice().sort(() => Math.random() - 0.5).slice(0, count);
 }
 
 function formatTime(totalSeconds) {
@@ -207,12 +284,12 @@ function stopLocalTimer() {
   }
 }
 
+function totalTermsTarget(room = state.room) {
+  return Number(room?.settings?.totalTerms || room?.settings?.categoryAmount || 10);
+}
+
 function playerEntries(room = state.room) {
-  return Object.entries(room?.players || {}).sort((a, b) => {
-    const aTime = Number(a[1]?.joinedAt || 0);
-    const bTime = Number(b[1]?.joinedAt || 0);
-    return aTime - bTime;
-  });
+  return Object.entries(room?.players || {}).sort((a, b) => Number(a[1]?.joinedAt || 0) - Number(b[1]?.joinedAt || 0));
 }
 
 function roundData(room = state.room) {
@@ -226,11 +303,16 @@ function categoryIndicesForRound(round) {
   return Object.values(round.categoryIndices).map(Number);
 }
 
+function lettersForRound(round) {
+  if (Array.isArray(round?.letters)) return round.letters;
+  if (round?.letters && typeof round.letters === "object") return Object.values(round.letters);
+  return [];
+}
+
 function totalScoreFor(uid, room = state.room) {
   let total = 0;
   Object.values(room?.rounds || {}).forEach(round => {
-    const scores = round?.scores?.[uid] || {};
-    Object.values(scores).forEach(value => {
+    Object.values(round?.scores?.[uid] || {}).forEach(value => {
       const points = Number(value);
       if (Number.isFinite(points)) total += points;
     });
@@ -244,18 +326,70 @@ function roundScoreFor(uid, round) {
 
 function usedCategoryIndices(room = state.room) {
   const used = [];
-  Object.values(room?.rounds || {}).forEach(round => {
-    used.push(...categoryIndicesForRound(round));
-  });
+  Object.values(room?.rounds || {}).forEach(round => used.push(...categoryIndicesForRound(round)));
   return used;
+}
+
+function playedTermCount(room = state.room) {
+  return Object.values(room?.rounds || {}).reduce((sum, round) => sum + categoryIndicesForRound(round).length, 0);
 }
 
 function pickCategoryIndices(count, room = state.room) {
   const used = new Set(usedCategoryIndices(room));
   let available = CATEGORIES.map((_, index) => index).filter(index => !used.has(index));
   if (available.length < count) available = CATEGORIES.map((_, index) => index);
-  const shuffled = [...available].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count);
+  return available.sort(() => Math.random() - 0.5).slice(0, count);
+}
+
+function levelMeta(roundNumber) {
+  const levelNumber = ((Number(roundNumber) - 1) % 4) + 1;
+  const blockNumber = Math.floor((Number(roundNumber) - 1) / 4) + 1;
+  return {
+    levelNumber,
+    blockNumber,
+    mode: LEVEL_ORDER[levelNumber - 1]
+  };
+}
+
+function modeCategoryCount(mode) {
+  if (mode === "four-different") return 4;
+  if (mode === "three-sequential") return 3;
+  if (mode === "two-same") return 2;
+  return 1;
+}
+
+function levelTitle(round) {
+  const blockTotal = Math.ceil(totalTermsTarget() / 10);
+  const prefix = blockTotal > 1 ? `Block ${round.blockNumber}/${blockTotal} · ` : "";
+  if (round.mode === "three-sequential") return `${prefix}Level 2 · Frage ${Number(round.activeStep || 0) + 1}/3`;
+  return `${prefix}Level ${round.levelNumber}`;
+}
+
+function levelInstruction(round) {
+  if (round.mode === "four-different") return "4 Fragen gleichzeitig – jede Frage hat einen anderen Buchstaben.";
+  if (round.mode === "three-sequential") return "3 Fragen nacheinander – gerade siehst du nur die aktuelle Frage.";
+  if (round.mode === "two-same") return "2 Fragen gleichzeitig – beide müssen mit demselben Buchstaben beantwortet werden.";
+  return "1 Frage – finde 2 verschiedene Antworten mit demselben Buchstaben.";
+}
+
+function answerSlots(round, scoring = false) {
+  const indices = categoryIndicesForRound(round);
+  const letters = lettersForRound(round);
+  if (round.mode === "four-different") {
+    return indices.map((categoryIndex, i) => ({ slotIndex: i, categoryIndex, letter: letters[i] || "?", variant: "" }));
+  }
+  if (round.mode === "three-sequential") {
+    const all = indices.map((categoryIndex, i) => ({ slotIndex: i, categoryIndex, letter: letters[i] || "?", variant: `Frage ${i + 1}` }));
+    return scoring ? all : [all[Math.min(2, Math.max(0, Number(round.activeStep || 0)))]].filter(Boolean);
+  }
+  if (round.mode === "two-same") {
+    return indices.map((categoryIndex, i) => ({ slotIndex: i, categoryIndex, letter: round.letter || "?", variant: "" }));
+  }
+  const categoryIndex = indices[0];
+  return [
+    { slotIndex: 0, categoryIndex, letter: round.letter || "?", variant: "Antwort 1" },
+    { slotIndex: 1, categoryIndex, letter: round.letter || "?", variant: "Antwort 2" }
+  ];
 }
 
 function setHostVisibility() {
@@ -265,9 +399,8 @@ function setHostVisibility() {
 
 async function ensurePlayerDisconnectCleanup() {
   if (!state.user || !state.roomCode) return;
-  const pRef = ref(db, `rooms/${state.roomCode}/players/${state.user.uid}`);
   try {
-    await onDisconnect(pRef).remove();
+    await onDisconnect(ref(db, `rooms/${state.roomCode}/players/${state.user.uid}`)).remove();
   } catch (error) {
     console.warn("onDisconnect konnte nicht gesetzt werden", error);
   }
@@ -275,8 +408,7 @@ async function ensurePlayerDisconnectCleanup() {
 
 function subscribeToRoom(code) {
   if (state.roomUnsubscribe) state.roomUnsubscribe();
-  const roomRef = ref(db, `rooms/${code}`);
-  state.roomUnsubscribe = onValue(roomRef, snapshot => {
+  state.roomUnsubscribe = onValue(ref(db, `rooms/${code}`), snapshot => {
     if (!snapshot.exists()) {
       leaveRoomLocal("Der Raum existiert nicht mehr.");
       return;
@@ -292,10 +424,7 @@ function subscribeToRoom(code) {
 }
 
 async function createRoom() {
-  if (!state.user) {
-    setSetupMessage("Firebase ist noch nicht bereit.", true);
-    return;
-  }
+  if (!state.user) return setSetupMessage("Firebase ist noch nicht bereit.", true);
   const name = cleanName();
   if (!name) {
     setSetupMessage("Bitte gib zuerst deinen Spielernamen ein.", true);
@@ -305,6 +434,7 @@ async function createRoom() {
 
   $("createRoomBtn").disabled = true;
   setSetupMessage("Raum wird erstellt …");
+  await saveProfileName(name);
 
   try {
     let code = "";
@@ -318,12 +448,13 @@ async function createRoom() {
         status: "lobby",
         currentRoundNumber: 0,
         settings: {
-          categoryAmount: Number($("categoryAmount").value),
+          totalTerms: Number($("categoryAmount").value),
           timerLength: Number($("timerLength").value)
         },
         players: {
           [state.user.uid]: {
             name,
+            wins: state.profileWins,
             joinedAt: serverTimestamp()
           }
         }
@@ -331,12 +462,11 @@ async function createRoom() {
       const result = await runTransaction(roomRef, current => current === null ? initialRoom : undefined);
       created = result.committed;
     }
-
     if (!created) throw new Error("Kein freier Raumcode gefunden.");
 
-    state.playerName = name;
     state.roomCode = code;
     state.renderKey = "";
+    state.winnerPopupKey = "";
     await ensurePlayerDisconnectCleanup();
     subscribeToRoom(code);
     setSetupMessage("");
@@ -349,10 +479,7 @@ async function createRoom() {
 }
 
 async function joinRoom() {
-  if (!state.user) {
-    setSetupMessage("Firebase ist noch nicht bereit.", true);
-    return;
-  }
+  if (!state.user) return setSetupMessage("Firebase ist noch nicht bereit.", true);
   const name = cleanName();
   const code = normalizeRoomCode($("roomCodeInput").value);
   $("roomCodeInput").value = code;
@@ -370,6 +497,7 @@ async function joinRoom() {
 
   $("joinRoomBtn").disabled = true;
   setSetupMessage("Raum wird gesucht …");
+  await saveProfileName(name);
 
   try {
     const roomRef = ref(db, `rooms/${code}`);
@@ -381,12 +509,13 @@ async function joinRoom() {
     await set(playerRef, {
       ...oldPlayer,
       name,
+      wins: state.profileWins,
       joinedAt: oldPlayer.joinedAt || serverTimestamp()
     });
 
-    state.playerName = name;
     state.roomCode = code;
     state.renderKey = "";
+    state.winnerPopupKey = "";
     await ensurePlayerDisconnectCleanup();
     subscribeToRoom(code);
     setSetupMessage("");
@@ -404,55 +533,78 @@ function renderLobby() {
   $("lobbyRoomCode").textContent = state.roomCode;
   $("roleBadge").textContent = state.isHost ? "HOST" : "SPIELER";
 
-  const players = playerEntries();
-  $("playerList").innerHTML = players.map(([uid, player]) => {
+  $("playerList").innerHTML = playerEntries().map(([uid, player]) => {
     const tags = [];
     if (uid === state.room.hostUid) tags.push("HOST");
     if (uid === state.user?.uid) tags.push("DU");
-    return `<div class="player-chip"><strong>${escapeHtml(player.name || "Pony")}</strong><span>${tags.join(" · ")}</span></div>`;
+    const wins = Math.max(0, Number(player.wins || 0));
+    return `<div class="player-chip">
+      <strong>${escapeHtml(player.name || "Pony")}</strong>
+      <span>🏆 ${wins} ${wins === 1 ? "Sieg" : "Siege"}${tags.length ? ` · ${tags.join(" · ")}` : ""}</span>
+    </div>`;
   }).join("");
 
   const settings = state.room.settings || {};
-  $("lobbyCategoryAmount").value = String(settings.categoryAmount || 10);
+  $("lobbyCategoryAmount").value = String(settings.totalTerms || settings.categoryAmount || 10);
   $("lobbyTimerLength").value = String(settings.timerLength ?? 90);
   $("lobbyCategoryAmount").disabled = !state.isHost;
   $("lobbyTimerLength").disabled = !state.isHost;
   $("hostSettingsHint").textContent = state.isHost
-    ? "Du bist Host. Änderungen gelten sofort für alle."
+    ? "Du bist Host. Änderungen gelten sofort für alle. Je 10 Begriffe wird ein kompletter 4→3→2→1-Levelblock gespielt."
     : "Nur der Host kann diese Einstellungen ändern.";
 }
 
 function currentRoundKey() {
   const round = roundData();
   if (!round) return "";
-  return `${state.room.currentRoundNumber}|${round.letter}|${categoryIndicesForRound(round).join(",")}`;
+  const letterPart = round.letter || lettersForRound(round).join("");
+  return `${state.room.currentRoundNumber}|${round.mode}|${round.activeStep || 0}|${letterPart}|${categoryIndicesForRound(round).join(",")}`;
 }
 
 function renderGame() {
   const round = roundData();
   if (!round) return;
   showPanel(gamePanel);
-  $("roundLabel").textContent = `Runde ${state.room.currentRoundNumber} · Raum ${state.roomCode}`;
+
+  $("roundLabel").textContent = `${levelTitle(round)} · Raum ${state.roomCode}`;
+  $("levelInstruction").textContent = levelInstruction(round);
   const me = state.room.players?.[state.user.uid];
   $("playerDisplay").textContent = `${me?.name || state.playerName || "Pony"}, los geht's!`;
-  $("letterDisplay").textContent = round.letter || "?";
   $("totalScoreDisplay").textContent = totalScoreFor(state.user.uid);
+
+  const slots = answerSlots(round, false);
+  if (round.mode === "four-different") {
+    $("letterStatLabel").textContent = "Buchstaben";
+    $("letterDisplay").textContent = lettersForRound(round).join(" · ");
+    $("letterDisplay").classList.add("multi-letter");
+  } else {
+    $("letterStatLabel").textContent = "Buchstabe";
+    $("letterDisplay").textContent = slots[0]?.letter || round.letter || "?";
+    $("letterDisplay").classList.remove("multi-letter");
+  }
+
+  $("stopHint").textContent = round.mode === "three-sequential"
+    ? `STOP beendet Frage ${Number(round.activeStep || 0) + 1}. Danach kommt ${Number(round.activeStep || 0) < 2 ? "direkt die nächste Frage" : "die Auswertung"}.`
+    : "Jeder Spieler kann STOP drücken. Dann endet dieses Level gleichzeitig für alle.";
 
   const key = currentRoundKey();
   if (state.localRoundKey !== key) {
     state.localRoundKey = key;
     const form = $("answersForm");
     form.innerHTML = "";
-    const indices = categoryIndicesForRound(round);
     const myAnswers = round.answers?.[state.user.uid] || {};
 
-    indices.forEach((categoryIndex, index) => {
-      const category = CATEGORIES[categoryIndex] || "Unbekannte Kategorie";
+    slots.forEach((slot, visualIndex) => {
+      const category = CATEGORIES[slot.categoryIndex] || "Unbekannte Kategorie";
       const row = document.createElement("div");
       row.className = "answer-row";
+      const prefix = round.mode === "one-double" ? slot.variant : (round.mode === "three-sequential" ? slot.variant : `${visualIndex + 1}.`);
       row.innerHTML = `
-        <label class="answer-label" for="answer-${index}"><span class="answer-number">${index + 1}.</span>${escapeHtml(category)}</label>
-        <input class="answer-input" id="answer-${index}" data-index="${index}" autocomplete="off" spellcheck="false" placeholder="Antwort mit ${escapeHtml(round.letter || "?")} …" value="${escapeHtml(myAnswers[index] || "")}">
+        <label class="answer-label" for="answer-${slot.slotIndex}">
+          <span class="question-letter">${escapeHtml(slot.letter)}</span>
+          <span><span class="answer-number">${escapeHtml(prefix)}</span>${escapeHtml(category)}</span>
+        </label>
+        <input class="answer-input" id="answer-${slot.slotIndex}" data-index="${slot.slotIndex}" autocomplete="off" spellcheck="false" placeholder="Antwort mit ${escapeHtml(slot.letter)} …" value="${escapeHtml(myAnswers[slot.slotIndex] || "")}">
       `;
       form.appendChild(row);
     });
@@ -469,10 +621,6 @@ function renderGame() {
       });
     });
     setTimeout(() => form.querySelector(".answer-input")?.focus(), 120);
-  } else {
-    document.querySelectorAll(".answer-input").forEach(input => {
-      input.placeholder = `Antwort mit ${round.letter || "?"} …`;
-    });
   }
 
   startRoundClock(round);
@@ -480,17 +628,10 @@ function renderGame() {
 
 function startRoundClock(round) {
   stopLocalTimer();
-
   const updateClock = () => {
-    const duration = Number(round.duration || state.room.settings?.timerLength || 0);
+    const duration = Number(round.duration || state.room.settings?.timerLength || 90);
     const timerCard = $("timerCard");
     timerCard.classList.remove("warning", "danger");
-
-    if (duration === 0 || !round.endsAt) {
-      $("timerDisplay").textContent = "∞";
-      return;
-    }
-
     const seconds = Math.max(0, Math.ceil((Number(round.endsAt) - serverNow()) / 1000));
     $("timerDisplay").textContent = formatTime(seconds);
     if (seconds <= 15) timerCard.classList.add("danger");
@@ -498,42 +639,53 @@ function startRoundClock(round) {
 
     if (seconds <= 0) {
       stopLocalTimer();
-      if (state.isHost && state.room?.status === "playing") stopRound("Zeit abgelaufen");
+      if (state.isHost && state.room?.status === "playing") advanceOrScore("Zeit abgelaufen");
     }
   };
-
   updateClock();
-  if (Number(round.duration || 0) > 0) state.timerId = setInterval(updateClock, 250);
+  state.timerId = setInterval(updateClock, 250);
 }
 
 async function updateLobbySettings() {
   if (!state.isHost || !state.roomCode) return;
   await update(ref(db, `rooms/${state.roomCode}/settings`), {
-    categoryAmount: Number($("lobbyCategoryAmount").value),
+    totalTerms: Number($("lobbyCategoryAmount").value),
     timerLength: Number($("lobbyTimerLength").value)
   });
 }
 
-async function startNextRound() {
-  if (!state.isHost || !state.roomCode || !state.room) return;
-  const nextNumber = Number(state.room.currentRoundNumber || 0) + 1;
-  const count = Number(state.room.settings?.categoryAmount || 10);
+function makeRound(nextNumber) {
+  const meta = levelMeta(nextNumber);
   const duration = Number(state.room.settings?.timerLength ?? 90);
-  const previousRound = roundData();
-  const letter = randomLetter(previousRound?.letter || "");
-  const categoryIndices = pickCategoryIndices(count);
+  const categoryIndices = pickCategoryIndices(modeCategoryCount(meta.mode));
   const startedAt = serverNow();
   const round = {
-    letter,
+    mode: meta.mode,
+    levelNumber: meta.levelNumber,
+    blockNumber: meta.blockNumber,
     categoryIndices,
     duration,
     startedAt,
-    endsAt: duration > 0 ? startedAt + duration * 1000 : 0,
+    endsAt: startedAt + duration * 1000,
     answers: {},
     scores: {},
     ready: {}
   };
 
+  if (meta.mode === "four-different") round.letters = randomUniqueLetters(4);
+  if (meta.mode === "three-sequential") {
+    round.letters = randomUniqueLetters(3);
+    round.activeStep = 0;
+  }
+  if (meta.mode === "two-same" || meta.mode === "one-double") round.letter = randomLetter();
+  return round;
+}
+
+async function startNextRound() {
+  if (!state.isHost || !state.roomCode || !state.room) return;
+  if (playedTermCount() >= totalTermsTarget()) return finishGame();
+  const nextNumber = Number(state.room.currentRoundNumber || 0) + 1;
+  const round = makeRound(nextNumber);
   state.localRoundKey = "";
   await update(ref(db, `rooms/${state.roomCode}`), {
     status: "playing",
@@ -542,26 +694,69 @@ async function startNextRound() {
   });
 }
 
-async function stopRound(reason = "STOP") {
+async function advanceOrScore(reason = "STOP") {
   if (!state.roomCode || state.room?.status !== "playing") return;
+  const expectedRoundNumber = Number(state.room.currentRoundNumber);
+  const expectedStep = Number(roundData()?.activeStep || 0);
+  const now = serverNow();
+  const roomRef = ref(db, `rooms/${state.roomCode}`);
+
   try {
-    await update(ref(db, `rooms/${state.roomCode}`), {
-      status: "scoring",
-      [`rounds/${state.room.currentRoundNumber}/stoppedAt`]: serverNow(),
-      [`rounds/${state.room.currentRoundNumber}/stopReason`]: reason
+    await runTransaction(roomRef, room => {
+      if (!room || room.status !== "playing" || Number(room.currentRoundNumber) !== expectedRoundNumber) return;
+      const round = room.rounds?.[expectedRoundNumber];
+      if (!round) return;
+
+      if (round.mode === "three-sequential") {
+        const activeStep = Number(round.activeStep || 0);
+        if (activeStep !== expectedStep) return;
+        if (activeStep < 2) {
+          round.activeStep = activeStep + 1;
+          round.startedAt = now;
+          round.endsAt = now + Number(round.duration || room.settings?.timerLength || 90) * 1000;
+          round.lastAdvanceReason = reason;
+          return room;
+        }
+      }
+
+      room.status = "scoring";
+      round.stoppedAt = now;
+      round.stopReason = reason;
+      return room;
     });
   } catch (error) {
     console.error(error);
   }
 }
 
-async function changeLetterForAll() {
-  if (!state.isHost) return;
-  const round = roundData();
-  if (!round) return;
-  const letter = randomLetter(round.letter || "");
+async function rerollLetters() {
+  if (!state.isHost || !state.roomCode) return;
+  const roundNumber = Number(state.room.currentRoundNumber);
+  const roundRef = ref(db, `rooms/${state.roomCode}/rounds/${roundNumber}`);
   state.localRoundKey = "";
-  await set(ref(db, `rooms/${state.roomCode}/rounds/${state.room.currentRoundNumber}/letter`), letter);
+
+  await runTransaction(roundRef, round => {
+    if (!round) return;
+    if (round.mode === "four-different") {
+      round.letters = randomUniqueLetters(4, lettersForRound(round));
+      round.answers = {};
+    } else if (round.mode === "three-sequential") {
+      const step = Number(round.activeStep || 0);
+      const letters = lettersForRound(round);
+      const old = letters[step] || "";
+      letters[step] = randomLetter([...letters, old]);
+      round.letters = letters;
+      const answers = round.answers || {};
+      Object.keys(answers).forEach(uid => {
+        if (answers[uid]) delete answers[uid][step];
+      });
+      round.answers = answers;
+    } else {
+      round.letter = randomLetter(round.letter || "");
+      round.answers = {};
+    }
+    return round;
+  });
 }
 
 async function restartTimerForAll() {
@@ -572,16 +767,14 @@ async function restartTimerForAll() {
   const now = serverNow();
   await update(ref(db, `rooms/${state.roomCode}/rounds/${state.room.currentRoundNumber}`), {
     startedAt: now,
-    endsAt: duration > 0 ? now + duration * 1000 : 0
+    endsAt: now + duration * 1000
   });
 }
 
 function playerReadyCount(round) {
   const players = playerEntries();
   let ready = 0;
-  players.forEach(([uid]) => {
-    if (round?.ready?.[uid]) ready += 1;
-  });
+  players.forEach(([uid]) => { if (round?.ready?.[uid]) ready += 1; });
   return { ready, total: players.length };
 }
 
@@ -592,38 +785,32 @@ function renderScoring() {
   if (!round) return;
 
   const roundNumber = state.room.currentRoundNumber;
-  $("scoreRoundLabel").textContent = `Auswertung · Runde ${roundNumber} · Raum ${state.roomCode}`;
+  $("scoreRoundLabel").textContent = `Auswertung · ${levelTitle(round)} · Raum ${state.roomCode}`;
   $("roundScoreDisplay").textContent = roundScoreFor(state.user.uid, round);
 
-  const indices = categoryIndicesForRound(round);
+  const slots = answerSlots(round, true);
   const players = playerEntries();
   const container = $("scoreList");
   container.innerHTML = "";
 
-  indices.forEach((categoryIndex, answerIndex) => {
+  slots.forEach((slot, visualIndex) => {
     const item = document.createElement("div");
     item.className = "score-item";
-    const category = CATEGORIES[categoryIndex] || "Unbekannte Kategorie";
+    const category = CATEGORIES[slot.categoryIndex] || "Unbekannte Kategorie";
     const rows = players.map(([uid, player]) => {
-      const answer = round.answers?.[uid]?.[answerIndex] || "";
+      const answer = round.answers?.[uid]?.[slot.slotIndex] || "";
       const isMe = uid === state.user.uid;
-      const score = round.scores?.[uid]?.[answerIndex];
+      const score = round.scores?.[uid]?.[slot.slotIndex];
       let scoring = "";
-
       if (isMe) {
-        if (!answer.trim()) {
-          scoring = `<span class="empty-answer">0 Punkte</span>`;
-        } else {
-          scoring = `<div class="score-buttons" data-index="${answerIndex}">
-            ${[0, 5, 10, 20].map(points => `<button class="point-btn ${points === 0 ? "zero" : ""} ${points === 20 ? "twenty" : ""} ${Number(score) === points ? "selected" : ""}" type="button" data-points="${points}">${points}</button>`).join("")}
-          </div>`;
-        }
+        scoring = answer.trim()
+          ? `<div class="score-buttons" data-index="${slot.slotIndex}">${[0, 5, 10, 20].map(points => `<button class="point-btn ${points === 0 ? "zero" : ""} ${points === 20 ? "twenty" : ""} ${Number(score) === points ? "selected" : ""}" type="button" data-points="${points}">${points}</button>`).join("")}</div>`
+          : `<span class="empty-answer">0 Punkte</span>`;
       } else if (score !== undefined && score !== null) {
         scoring = `<strong>${Number(score) || 0} P.</strong>`;
       } else {
         scoring = `<span class="empty-answer">—</span>`;
       }
-
       return `<div class="comparison-row ${isMe ? "me" : ""}">
         <div class="comparison-name">${escapeHtml(player.name || "Pony")}${isMe ? " (du)" : ""}</div>
         <div class="comparison-answer ${answer ? "" : "empty-answer"}">${answer ? escapeHtml(answer) : "keine Antwort"}</div>
@@ -631,7 +818,8 @@ function renderScoring() {
       </div>`;
     }).join("");
 
-    item.innerHTML = `<div class="score-category">${answerIndex + 1}. ${escapeHtml(category)}</div><div class="comparison-list">${rows}</div>`;
+    const variant = slot.variant ? `<small>${escapeHtml(slot.variant)}</small>` : "";
+    item.innerHTML = `<div class="score-category"><span class="score-letter">${escapeHtml(slot.letter)}</span>${visualIndex + 1}. ${escapeHtml(category)} ${variant}</div><div class="comparison-list">${rows}</div>`;
     container.appendChild(item);
   });
 
@@ -649,6 +837,14 @@ function renderScoring() {
   const meReady = Boolean(round.ready?.[state.user.uid]);
   $("readyBtn").disabled = meReady;
   $("readyBtn").textContent = meReady ? "Bewertung abgeschlossen ✓" : "Meine Bewertung ist fertig";
+
+  const gameComplete = playedTermCount() >= totalTermsTarget();
+  $("nextRoundBtn").textContent = gameComplete ? "Gewinner anzeigen 👑" : "Nächstes Level starten";
+  $("nextRoundBtn").disabled = readyState.total === 0 || readyState.ready < readyState.total;
+  $("finishGameBtn").classList.toggle("hidden", !state.isHost || gameComplete);
+  $("waitForHostText").textContent = gameComplete
+    ? "Alle Bewertungen fertig? Dann zeigt der Host den Gewinner an."
+    : "Warte darauf, dass der Host das nächste Level startet.";
 }
 
 async function markReady() {
@@ -657,36 +853,89 @@ async function markReady() {
   await set(ref(db, `rooms/${state.roomCode}/rounds/${state.room.currentRoundNumber}/ready/${state.user.uid}`), true);
 }
 
+function calculateResults(room = state.room) {
+  return playerEntries(room).map(([uid, player]) => ({
+    uid,
+    name: player.name || "Pony",
+    score: totalScoreFor(uid, room),
+    wins: Math.max(0, Number(player.wins || 0))
+  })).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "de"));
+}
+
 async function finishGame() {
-  if (!state.isHost) return;
-  await set(ref(db, `rooms/${state.roomCode}/status`), "finished");
+  if (!state.isHost || !state.roomCode || !state.room) return;
+  const results = calculateResults();
+  if (!results.length) return;
+  const maxScore = results[0].score;
+  const winnerUids = results.filter(player => player.score === maxScore).map(player => player.uid);
+  const now = serverNow();
+
+  const transaction = await runTransaction(ref(db, `rooms/${state.roomCode}`), room => {
+    if (!room) return;
+    if (room.winnerRecorded) return;
+    room.status = "finished";
+    room.finishedAt = now;
+    room.winnerRecorded = true;
+    room.winnerScore = maxScore;
+    room.winnerUids = {};
+    winnerUids.forEach(uid => { room.winnerUids[uid] = true; });
+    return room;
+  });
+
+  if (!transaction.committed) return;
+
+  for (const uid of winnerUids) {
+    try {
+      const winTx = await runTransaction(ref(db, `profiles/${uid}/wins`), current => Math.max(0, Number(current || 0)) + 1);
+      const newWins = Math.max(0, Number(winTx.snapshot.val() || 0));
+      await set(ref(db, `rooms/${state.roomCode}/players/${uid}/wins`), newWins);
+      if (uid === state.user.uid) {
+        state.profileWins = newWins;
+        updateProfileBadge();
+        writeLocalProfile();
+      }
+    } catch (error) {
+      console.warn("Sieg konnte nicht gespeichert werden", error);
+    }
+  }
 }
 
 function renderEnd() {
   stopLocalTimer();
   showPanel(endPanel);
-  const results = playerEntries().map(([uid, player]) => ({
-    uid,
-    name: player.name || "Pony",
-    score: totalScoreFor(uid)
-  })).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "de"));
-
+  const results = calculateResults();
   $("leaderboard").innerHTML = results.map((player, index) => `
     <div class="leader-row">
       <div class="leader-rank">#${index + 1}</div>
-      <div class="leader-name">${escapeHtml(player.name)}${player.uid === state.user.uid ? " (du)" : ""}</div>
+      <div class="leader-name">${escapeHtml(player.name)}${player.uid === state.user.uid ? " (du)" : ""}<small>🏆 ${player.wins} ${player.wins === 1 ? "Sieg" : "Siege"}</small></div>
       <div class="leader-score">${player.score} P.</div>
     </div>
   `).join("");
+
+  const maxScore = results[0]?.score ?? 0;
+  const winners = results.filter(player => player.score === maxScore);
+  const popupKey = String(state.room.finishedAt || "finished");
+  if (state.winnerPopupKey !== popupKey) {
+    state.winnerPopupKey = popupKey;
+    $("winnerName").textContent = winners.map(player => player.name).join(" & ");
+    $("winnerTitle").textContent = winners.length > 1 ? "Pony-Champions!" : "Pony-Champion!";
+    $("winnerScore").textContent = `${maxScore} Punkte`;
+    $("winnerPopup").classList.remove("hidden");
+  }
 }
 
 async function backToLobby() {
   if (!state.isHost || !state.roomCode) return;
   state.localRoundKey = "";
+  state.winnerPopupKey = "";
   await update(ref(db, `rooms/${state.roomCode}`), {
     status: "lobby",
     currentRoundNumber: 0,
-    rounds: null
+    rounds: null,
+    winnerRecorded: null,
+    winnerUids: null,
+    winnerScore: null,
+    finishedAt: null
   });
 }
 
@@ -694,23 +943,16 @@ function renderFromRoom() {
   if (!state.room) return;
   setHostVisibility();
   const status = state.room.status || "lobby";
-  const key = `${status}|${state.room.currentRoundNumber || 0}|${currentRoundKey()}|${Object.keys(state.room.players || {}).length}`;
-
   if (status === "lobby") renderLobby();
   else if (status === "playing") renderGame();
   else if (status === "scoring") renderScoring();
   else if (status === "finished") renderEnd();
-
-  state.renderKey = key;
 }
 
 async function leaveRoom() {
   if (state.user && state.roomCode) {
-    try {
-      await remove(ref(db, `rooms/${state.roomCode}/players/${state.user.uid}`));
-    } catch (error) {
-      console.warn(error);
-    }
+    try { await remove(ref(db, `rooms/${state.roomCode}/players/${state.user.uid}`)); }
+    catch (error) { console.warn(error); }
   }
   leaveRoomLocal();
 }
@@ -726,31 +968,43 @@ function leaveRoomLocal(message = "") {
   state.isHost = false;
   state.localRoundKey = "";
   state.renderKey = "";
+  state.winnerPopupKey = "";
+  $("winnerPopup").classList.add("hidden");
   setHostVisibility();
   showPanel(setupPanel);
   if (message) setSetupMessage(message, true);
 }
 
+async function hostNextAction() {
+  if (!state.isHost) return;
+  if (playedTermCount() >= totalTermsTarget()) await finishGame();
+  else await startNextRound();
+}
+
 $("createRoomBtn").addEventListener("click", createRoom);
 $("joinRoomBtn").addEventListener("click", joinRoom);
-$("roomCodeInput").addEventListener("input", event => {
-  event.target.value = normalizeRoomCode(event.target.value);
+$("playerName").addEventListener("change", () => {
+  const name = cleanName();
+  if (name) saveProfileName(name);
 });
-$("roomCodeInput").addEventListener("keydown", event => {
-  if (event.key === "Enter") joinRoom();
-});
+$("roomCodeInput").addEventListener("input", event => { event.target.value = normalizeRoomCode(event.target.value); });
+$("roomCodeInput").addEventListener("keydown", event => { if (event.key === "Enter") joinRoom(); });
 $("lobbyCategoryAmount").addEventListener("change", updateLobbySettings);
 $("lobbyTimerLength").addEventListener("change", updateLobbySettings);
 $("hostStartBtn").addEventListener("click", startNextRound);
 $("leaveRoomBtn").addEventListener("click", leaveRoom);
 $("leaveRoomFromEndBtn").addEventListener("click", leaveRoom);
-$("stopRoundBtn").addEventListener("click", () => stopRound("STOP gedrückt"));
-$("newLetterBtn").addEventListener("click", changeLetterForAll);
+$("stopRoundBtn").addEventListener("click", () => advanceOrScore("STOP gedrückt"));
+$("newLetterBtn").addEventListener("click", rerollLetters);
 $("restartTimerBtn").addEventListener("click", restartTimerForAll);
 $("readyBtn").addEventListener("click", markReady);
-$("nextRoundBtn").addEventListener("click", startNextRound);
+$("nextRoundBtn").addEventListener("click", hostNextAction);
 $("finishGameBtn").addEventListener("click", finishGame);
 $("backToLobbyBtn").addEventListener("click", backToLobby);
+$("winnerCloseBtn").addEventListener("click", () => $("winnerPopup").classList.add("hidden"));
+$("winnerPopup").addEventListener("click", event => {
+  if (event.target === $("winnerPopup")) $("winnerPopup").classList.add("hidden");
+});
 
 const dialog = $("categoriesDialog");
 function renderCategoryDialog(query = "") {
@@ -766,17 +1020,22 @@ $("showCategoriesBtn").addEventListener("click", () => {
 });
 $("closeDialogBtn").addEventListener("click", () => dialog.close());
 $("categorySearch").addEventListener("input", event => renderCategoryDialog(event.target.value));
-dialog.addEventListener("click", event => {
-  if (event.target === dialog) dialog.close();
-});
+dialog.addEventListener("click", event => { if (event.target === dialog) dialog.close(); });
+
+const initialLocalProfile = readLocalProfile();
+if (initialLocalProfile.name) $("playerName").value = initialLocalProfile.name;
+state.playerName = initialLocalProfile.name;
+state.profileWins = initialLocalProfile.wins;
+updateProfileBadge();
 
 state.offsetUnsubscribe = onValue(ref(db, ".info/serverTimeOffset"), snapshot => {
   state.serverOffset = Number(snapshot.val() || 0);
 });
 
-onAuthStateChanged(auth, user => {
+onAuthStateChanged(auth, async user => {
   if (user) {
     state.user = user;
+    await loadProfileForUser();
     setConnection("Firebase verbunden · Multiplayer bereit", "online");
     $("createRoomBtn").disabled = false;
     $("joinRoomBtn").disabled = false;
