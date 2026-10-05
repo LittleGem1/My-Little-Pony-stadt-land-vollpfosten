@@ -595,3 +595,15 @@ footer { width: min(1100px, calc(100% - 28px)); margin: 0 auto; padding: 0 0 34p
   font-weight: 800;
   text-align: center;
 }
+
+.score-hidden {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .45rem .65rem;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: .88rem;
+  white-space: nowrap;
+}

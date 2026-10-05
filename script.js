@@ -955,14 +955,17 @@ function renderScoring() {
 
   const roundNumber = state.room.currentRoundNumber;
   $("scoreRoundLabel").textContent = `Auswertung · ${levelTitle(round)} · Raum ${state.roomCode}`;
-  $("roundScoreDisplay").textContent = formatScore(roundScoreFor(state.user.uid, round));
+  $("roundScoreDisplay").textContent = "🔒";
   setScoreMessage("");
 
   const slots = answerSlots(round, true);
   const players = playerEntries();
   const meReady = Boolean(round.ready?.[state.user.uid]);
+  const readyState = playerReadyCount(round);
+  const revealScores = readyState.total > 0 && readyState.ready >= readyState.total;
   const container = $("scoreList");
   container.innerHTML = "";
+  $("roundScoreDisplay").textContent = revealScores ? formatScore(roundScoreFor(state.user.uid, round)) : "🔒";
 
   slots.forEach((slot, visualIndex) => {
     const item = document.createElement("div");
@@ -974,10 +977,14 @@ function renderScoring() {
       let scoring = "";
 
       if (isMe) {
-        const received = receivedScoreForSlot(round, uid, slot.slotIndex);
-        scoring = answer.trim()
-          ? `<span class="received-score">von anderen: ${formatScore(received)} P.</span>`
-          : `<span class="empty-answer">0 P. · leer</span>`;
+        if (!answer.trim()) {
+          scoring = `<span class="empty-answer">0 P. · leer</span>`;
+        } else if (revealScores) {
+          const received = receivedScoreForSlot(round, uid, slot.slotIndex);
+          scoring = `<span class="received-score">Ergebnis: ${formatScore(received)} P.</span>`;
+        } else {
+          scoring = `<span class="score-hidden">🔒 Bewertung bis zum Ende verborgen</span>`;
+        }
       } else if (!answer.trim()) {
         scoring = `<span class="empty-answer">0 P. · keine Antwort</span>`;
       } else {
@@ -1008,16 +1015,19 @@ function renderScoring() {
     });
   });
 
-  const readyState = playerReadyCount(round);
   $("readyStatus").textContent = `${readyState.ready}/${readyState.total} Spieler fertig`;
   $("readyBtn").disabled = meReady;
   $("readyBtn").textContent = meReady ? "Bewertung abgeschlossen ✓" : "Bewertung der anderen fertig";
 
   const missing = requiredVotesFor(state.user.uid, round);
-  if (!meReady && missing.length) {
-    setScoreMessage(`Noch ${missing.length} Antwort${missing.length === 1 ? "" : "en"} der anderen bewerten.`);
+  if (revealScores) {
+    setScoreMessage("Alle Bewertungen sind abgeschlossen. Die Punkte sind jetzt für alle sichtbar. 👑");
+  } else if (!meReady && missing.length) {
+    setScoreMessage(`Noch ${missing.length} Antwort${missing.length === 1 ? "" : "en"} der anderen bewerten. Die vergebenen Punkte bleiben bis zum Ende verborgen.`);
   } else if (meReady) {
-    setScoreMessage("Deine Bewertungen sind gespeichert. ✓");
+    setScoreMessage("Deine Bewertungen sind gespeichert. Die Punkte werden erst sichtbar, wenn alle fertig sind. ✓");
+  } else {
+    setScoreMessage("Bewerte die Antworten der anderen. Die vergebenen Punkte bleiben bis zum Ende verborgen.");
   }
 
   const gameComplete = playedTermCount() >= totalTermsTarget();
@@ -1194,7 +1204,15 @@ $("playerName").addEventListener("change", () => {
   if (name) saveProfileName(name);
 });
 $("roomCodeInput").addEventListener("input", event => { event.target.value = normalizeRoomCode(event.target.value); });
-$("roomCodeInput").addEventListener("keydown", event => { if (event.key === "Enter") joinRoom(); });
+// Enter soll im gesamten Spiel keine Aktion auslösen.
+// So kann weder versehentlich ein Formular abgesendet noch ein Raum verlassen/neu geladen werden.
+document.addEventListener("keydown", event => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  event.stopPropagation();
+}, true);
+
+$("answersForm").addEventListener("submit", event => event.preventDefault());
 $("lobbyCategoryAmount").addEventListener("change", updateLobbySettings);
 
 $("hostStartBtn").addEventListener("click", startNextRound);
