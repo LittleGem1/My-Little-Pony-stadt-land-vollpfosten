@@ -37,6 +37,10 @@ function winnerGifForGame(key) {
   return WINNER_GIFS[Math.abs(hash) % WINNER_GIFS.length];
 }
 
+function randomWinnerGif() {
+  return WINNER_GIFS[Math.floor(Math.random() * WINNER_GIFS.length)];
+}
+
 const firebaseConfig = {
   apiKey: "AIzaSyAC_hzJVQNLC660Kcox7rY9UY7DLIVjpAw",
   authDomain: "pony-game-7e138.firebaseapp.com",
@@ -1150,6 +1154,7 @@ async function finishGame() {
   const maxScore = results[0].score;
   const winnerUids = results.filter(player => player.score === maxScore).map(player => player.uid);
   const now = serverNow();
+  const selectedWinnerGif = randomWinnerGif();
 
   const transaction = await runTransaction(ref(db, `rooms/${state.roomCode}`), room => {
     if (!room) return;
@@ -1158,6 +1163,7 @@ async function finishGame() {
     room.finishedAt = now;
     room.winnerRecorded = true;
     room.winnerScore = maxScore;
+    room.winnerGif = selectedWinnerGif;
     room.winnerUids = {};
     winnerUids.forEach(uid => { room.winnerUids[uid] = true; });
     return room;
@@ -1201,8 +1207,8 @@ function renderEnd() {
     $("winnerName").textContent = winners.map(player => player.name).join(" & ");
     $("winnerTitle").textContent = winners.length > 1 ? "Pony-Champions!" : "Pony-Champion!";
     $("winnerScore").textContent = `${formatScore(maxScore)} Punkte`;
-    const gifKey = `${state.roomCode || "room"}-${popupKey}-${maxScore}`;
-    $("winnerGif").src = `${winnerGifForGame(gifKey)}?v=${encodeURIComponent(popupKey)}`;
+    const gifFile = state.room.winnerGif || winnerGifForGame(`${state.roomCode || "room"}-${popupKey}-${maxScore}`);
+    $("winnerGif").src = `${gifFile}?v=${encodeURIComponent(popupKey)}`;
     $("winnerPopup").classList.remove("hidden");
   }
 }
@@ -1218,6 +1224,7 @@ async function backToLobby() {
     winnerRecorded: null,
     winnerUids: null,
     winnerScore: null,
+    winnerGif: null,
     finishedAt: null
   });
 }
