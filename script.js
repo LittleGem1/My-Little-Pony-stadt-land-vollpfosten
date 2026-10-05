@@ -144,9 +144,15 @@ function escapeHtml(value) {
 }
 
 function showPanel(panel) {
+  const wasAlreadyVisible = !panel.classList.contains("hidden");
+
   [setupPanel, lobbyPanel, gamePanel, scorePanel, endPanel].forEach(p => p.classList.add("hidden"));
   panel.classList.remove("hidden");
-  window.scrollTo({ top: 0, behavior: "smooth" });
+
+  if (!wasAlreadyVisible) {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+}
 }
 
 function setSetupMessage(message, isError = false) {
