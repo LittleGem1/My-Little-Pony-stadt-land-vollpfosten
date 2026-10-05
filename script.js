@@ -609,8 +609,8 @@ function renderLobby() {
   $("hostSettingsHint").textContent = state.isHost
     ? (noTimePressure
       ? "Ohne Zeitdruck ist aktiv: Jeder darf in Ruhe fertig werden. Weiter geht es erst, wenn alle fertig sind."
-      : "Du bist Host. Änderungen gelten sofort für alle. Je 10 Begriffe wird ein kompletter 4→3→2→1-Levelblock gespielt.")
-    : (noTimePressure ? "Ohne Zeitdruck ist aktiv. Erst wenn alle fertig sind, geht es weiter." : "Nur der Host kann diese Einstellungen ändern.");
+      : "Du bist Host. Die gewählte Rundenzeit gilt für das ganze Spiel und startet bei jedem neuen Abschnitt wieder neu. Je 10 Begriffe wird ein kompletter 4→3→2→1-Levelblock gespielt.")
+    : (noTimePressure ? "Ohne Zeitdruck ist aktiv. Erst wenn alle fertig sind, geht es weiter." : "Nur der Host kann die Rundenzeit bzw. Ohne-Zeitdruck für das ganze Spiel festlegen.");
 }
 
 function currentRoundKey() {

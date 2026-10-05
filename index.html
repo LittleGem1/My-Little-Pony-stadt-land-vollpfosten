@@ -51,9 +51,9 @@
           </select>
         </label>
         <div class="field">
-          <span>Zeit pro Aufgabe <small>(für neuen Raum)</small></span>
+          <span>Rundenzeit <small>(gilt für jede Runde)</small></span>
           <input id="timerLength" type="hidden" value="90">
-          <div class="time-choice" data-time-group="timerLength" aria-label="Zeit pro Aufgabe wählen">
+          <div class="time-choice" data-time-group="timerLength" aria-label="Rundenzeit wählen">
             <button class="time-option" type="button" data-seconds="60">60 s</button>
             <button class="time-option selected" type="button" data-seconds="90">90 s</button>
             <button class="time-option" type="button" data-seconds="120">120 s</button>
@@ -62,14 +62,14 @@
           <label class="pressure-toggle">
             <input id="noTimePressure" type="checkbox">
             <span class="toggle-track" aria-hidden="true"><span></span></span>
-            <span class="toggle-copy"><strong>Ohne Zeitdruck</strong><small>Kein Timer. Jeder klickt selbst auf „Ich bin fertig“ – weiter geht es erst, wenn alle fertig sind.</small></span>
+            <span class="toggle-copy"><strong>Ohne Zeitdruck</strong><small>Statt des Timers: Jeder darf in Ruhe ausfüllen. Weiter geht es erst, wenn alle fertig sind.</small></span>
           </label>
         </div>
       </div>
 
       <div class="level-preview">
         <strong>So läuft ein 10er-Levelblock:</strong>
-        <span>4 Fragen / 4 Buchstaben → 3 Fragen einzeln → 2 Fragen / 1 Buchstabe → 1 Frage / 2 Antworten</span>
+        <span>4 Fragen / 4 Buchstaben → 3 Fragen einzeln → 2 Fragen / 1 Buchstabe → 1 Frage / 2 Antworten. Die gewählte Rundenzeit startet bei jedem neuen Abschnitt wieder von vorn – oder ihr spielt komplett ohne Zeitdruck.</span>
       </div>
 
       <div class="room-actions">
@@ -124,9 +124,9 @@
             </select>
           </label>
           <div class="field">
-            <span>Zeit pro Aufgabe</span>
+            <span>Rundenzeit <small>(gilt immer wieder neu)</small></span>
             <input id="lobbyTimerLength" type="hidden" value="90">
-            <div class="time-choice" data-time-group="lobbyTimerLength" aria-label="Zeit pro Aufgabe wählen">
+            <div class="time-choice" data-time-group="lobbyTimerLength" aria-label="Rundenzeit wählen">
               <button class="time-option" type="button" data-seconds="60">60 s</button>
               <button class="time-option selected" type="button" data-seconds="90">90 s</button>
               <button class="time-option" type="button" data-seconds="120">120 s</button>
@@ -135,7 +135,7 @@
             <label class="pressure-toggle">
               <input id="lobbyNoTimePressure" type="checkbox">
               <span class="toggle-track" aria-hidden="true"><span></span></span>
-              <span class="toggle-copy"><strong>Ohne Zeitdruck</strong><small>Alle dürfen in Ruhe fertig werden. Erst wenn jeder „Ich bin fertig“ geklickt hat, geht es weiter.</small></span>
+              <span class="toggle-copy"><strong>Ohne Zeitdruck</strong><small>Kein Countdown. Alle dürfen in Ruhe fertig werden und melden sich einzeln fertig.</small></span>
             </label>
           </div>
           <p class="helper compact" id="hostSettingsHint">Nur der Host kann diese Einstellungen ändern.</p>
