@@ -1193,65 +1193,80 @@ function calculateResults(room = state.room) {
 
 async function finishGame() {
   if (!state.isHost || !state.roomCode || !state.room) return;
-  const results = calculateResults();
-  if (!results.length) return;
-  const maxScore = results[0].score;
-  const winnerUids = results.filter(player => player.score === maxScore).map(player => player.uid);
-  const now = serverNow();
-  const gifChoice = chooseWinnerGif(state.room);
-  const selectedWinnerGif = gifChoice.selected;
-  const selectedWinnerGifIndex = gifChoice.selectedIndex;
+
   const winnerButton = $("nextRoundBtn");
+  const earlyFinishButton = $("finishGameBtn");
   if (winnerButton) {
     winnerButton.disabled = true;
     winnerButton.textContent = "Gewinner wird ermittelt… 👑";
   }
+  if (earlyFinishButton) earlyFinishButton.disabled = true;
+  setScoreMessage("Gewinner wird ermittelt …");
 
-  let transaction;
   try {
-    transaction = await runTransaction(ref(db, `rooms/${state.roomCode}`), room => {
-      if (!room) return;
-      if (room.winnerRecorded) return room;
-      room.status = "finished";
-      room.finishedAt = now;
-      room.winnerRecorded = true;
-      room.winnerScore = maxScore;
-      room.winnerGif = selectedWinnerGif;
-      room.lastWinnerGif = selectedWinnerGif;
-      if (gifChoice.resetBag || !room.usedWinnerGifs || typeof room.usedWinnerGifs !== "object") room.usedWinnerGifs = {};
-      room.usedWinnerGifs[String(selectedWinnerGifIndex)] = true;
-      room.winnerUids = {};
-      winnerUids.forEach(uid => { room.winnerUids[uid] = true; });
-      return room;
+    const results = calculateResults();
+    if (!results.length) throw new Error("Keine Spieler im Raum gefunden.");
+
+    const maxScore = results[0].score;
+    const winnerUids = results.filter(player => player.score === maxScore).map(player => player.uid);
+    const now = serverNow();
+    const gifChoice = chooseWinnerGif(state.room);
+    const selectedWinnerGif = gifChoice.selected;
+    const selectedWinnerGifIndex = gifChoice.selectedIndex;
+
+    const winnerUidMap = {};
+    winnerUids.forEach(uid => { winnerUidMap[uid] = true; });
+
+    // Der GIF-Beutel wird als kompletter, einfacher Zahlen-Key-Block gespeichert.
+    // So kann kein Dateiname die Firebase-Schlüsselregeln verletzen.
+    const oldUsed = state.room?.usedWinnerGifs && typeof state.room.usedWinnerGifs === "object"
+      ? state.room.usedWinnerGifs
+      : {};
+    const nextUsed = gifChoice.resetBag ? {} : { ...oldUsed };
+    nextUsed[String(selectedWinnerGifIndex)] = true;
+
+    // Wichtig: Kein Whole-Room-Transaction mehr. Der Abschluss wird mit einem
+    // simplen atomaren Update gesetzt. Dadurch kann die Sieg-Statistik den
+    // Wechsel zur Endseite nicht blockieren.
+    await update(ref(db, `rooms/${state.roomCode}`), {
+      status: "finished",
+      finishedAt: now,
+      winnerRecorded: true,
+      winnerScore: maxScore,
+      winnerGif: selectedWinnerGif,
+      winnerGifIndex: selectedWinnerGifIndex,
+      lastWinnerGif: selectedWinnerGif,
+      usedWinnerGifs: nextUsed,
+      winnerUids: winnerUidMap
     });
+
+    // Ab hier ist das Spiel bereits beendet und wird bei ALLEN Clients über
+    // onValue/renderEnd angezeigt. Die Sieg-Zähler sind nur noch Best Effort.
+    for (const uid of winnerUids) {
+      try {
+        const winTx = await runTransaction(
+          ref(db, `profiles/${uid}/wins`),
+          current => Math.max(0, Number(current || 0)) + 1
+        );
+        const newWins = Math.max(0, Number(winTx.snapshot.val() || 0));
+        await set(ref(db, `rooms/${state.roomCode}/players/${uid}/wins`), newWins);
+        if (uid === state.user.uid) {
+          state.profileWins = newWins;
+          updateProfileBadge();
+          writeLocalProfile();
+        }
+      } catch (error) {
+        console.warn("Sieg konnte nicht gespeichert werden", error);
+      }
+    }
   } catch (error) {
-    console.error("Gewinner konnte nicht ermittelt werden", error);
+    console.error("Gewinner konnte nicht angezeigt werden", error);
     if (winnerButton) {
       winnerButton.disabled = false;
       winnerButton.textContent = "Gewinner anzeigen 👑";
     }
-    setScoreMessage("Der Gewinner konnte gerade nicht angezeigt werden. Bitte versuche es nochmal.", true);
-    return;
-  }
-
-  if (!transaction.committed) {
-    if (winnerButton) winnerButton.disabled = false;
-    return;
-  }
-
-  for (const uid of winnerUids) {
-    try {
-      const winTx = await runTransaction(ref(db, `profiles/${uid}/wins`), current => Math.max(0, Number(current || 0)) + 1);
-      const newWins = Math.max(0, Number(winTx.snapshot.val() || 0));
-      await set(ref(db, `rooms/${state.roomCode}/players/${uid}/wins`), newWins);
-      if (uid === state.user.uid) {
-        state.profileWins = newWins;
-        updateProfileBadge();
-        writeLocalProfile();
-      }
-    } catch (error) {
-      console.warn("Sieg konnte nicht gespeichert werden", error);
-    }
+    if (earlyFinishButton) earlyFinishButton.disabled = false;
+    setScoreMessage(`Gewinner-Anzeige fehlgeschlagen: ${error?.message || "Unbekannter Fehler"}. Bitte nochmal klicken.`, true);
   }
 }
 
@@ -1347,7 +1362,8 @@ function leaveRoomLocal(message = "") {
 
 async function hostNextAction() {
   if (!state.isHost) return;
-  if (playedTermCount() >= totalTermsTarget()) await finishGame();
+  const winnerMode = playedTermCount() >= totalTermsTarget() || $("nextRoundBtn")?.textContent?.includes("Gewinner");
+  if (winnerMode) await finishGame();
   else await startNextRound();
 }
 
