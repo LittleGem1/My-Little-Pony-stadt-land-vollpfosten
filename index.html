@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#6f4cff">
+  <title>Stadt Land Vollpfosten – MLP Edition</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="stars" aria-hidden="true"></div>
+  <main class="app-shell">
+    <header class="hero">
+      <p class="eyebrow">FAN GAME · MLP ONLY</p>
+      <h1>Stadt Land Vollpfosten<br><span>MLP Edition</span></h1>
+      <p class="hero-copy">77 Kategorien, zufällige Buchstaben und maximaler Pony-Chaosfaktor.</p>
+    </header>
+
+    <section class="panel setup-panel" id="setupPanel">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">Spiel vorbereiten</p>
+          <h2>Neue Runde starten</h2>
+        </div>
+        <div class="badge" id="categoryCountBadge">77 Kategorien</div>
+      </div>
+
+      <div class="setup-grid">
+        <label class="field">
+          <span>Spielername</span>
+          <input id="playerName" type="text" maxlength="24" placeholder="z. B. Little Gem">
+        </label>
+        <label class="field">
+          <span>Kategorien pro Runde</span>
+          <select id="categoryAmount">
+            <option value="6">6 Kategorien</option>
+            <option value="8">8 Kategorien</option>
+            <option value="10" selected>10 Kategorien</option>
+            <option value="12">12 Kategorien</option>
+            <option value="15">15 Kategorien</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Zeit pro Runde</span>
+          <select id="timerLength">
+            <option value="60">60 Sekunden</option>
+            <option value="90" selected>90 Sekunden</option>
+            <option value="120">120 Sekunden</option>
+            <option value="180">180 Sekunden</option>
+            <option value="0">Ohne Timer</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="button-row">
+        <button class="btn btn-primary" id="startGameBtn" type="button">Spiel starten</button>
+        <button class="btn btn-secondary" id="showCategoriesBtn" type="button">Alle Kategorien ansehen</button>
+      </div>
+    </section>
+
+    <section class="panel game-panel hidden" id="gamePanel">
+      <div class="round-topbar">
+        <div>
+          <p class="kicker" id="roundLabel">Runde 1</p>
+          <h2 id="playerDisplay">Los geht's!</h2>
+        </div>
+        <div class="game-stats">
+          <div class="stat-card letter-card">
+            <span>Buchstabe</span>
+            <strong id="letterDisplay">A</strong>
+          </div>
+          <div class="stat-card timer-card" id="timerCard">
+            <span>Zeit</span>
+            <strong id="timerDisplay">01:30</strong>
+          </div>
+          <div class="stat-card">
+            <span>Punkte</span>
+            <strong id="totalScoreDisplay">0</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="letter-actions">
+        <button class="btn btn-small btn-secondary" id="newLetterBtn" type="button">Anderer Buchstabe</button>
+        <button class="btn btn-small btn-secondary" id="restartTimerBtn" type="button">Timer neu</button>
+      </div>
+
+      <form id="answersForm" class="answer-list"></form>
+
+      <div class="button-row sticky-actions">
+        <button class="btn btn-danger" id="stopRoundBtn" type="button">STOP!</button>
+      </div>
+    </section>
+
+    <section class="panel score-panel hidden" id="scorePanel">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">Auswertung</p>
+          <h2>Punkte verteilen</h2>
+        </div>
+        <div class="score-total"><span>Runde</span><strong id="roundScoreDisplay">0</strong></div>
+      </div>
+      <p class="helper">Tippe bei jeder Antwort auf die passende Punktzahl. Typisch: 20 = einzigartig, 10 = gültig, aber doppelt, 5 = diskutabel, 0 = nope.</p>
+      <div id="scoreList" class="score-list"></div>
+      <div class="button-row">
+        <button class="btn btn-primary" id="nextRoundBtn" type="button">Nächste Runde</button>
+        <button class="btn btn-secondary" id="finishGameBtn" type="button">Spiel beenden</button>
+      </div>
+    </section>
+
+    <section class="panel end-panel hidden" id="endPanel">
+      <p class="kicker">Spiel beendet</p>
+      <h2 id="finalHeadline">Pony-Chaos abgeschlossen!</h2>
+      <div class="final-score">
+        <span>Gesamtpunktzahl</span>
+        <strong id="finalScoreDisplay">0</strong>
+      </div>
+      <p id="finalSummary" class="hero-copy"></p>
+      <div class="button-row">
+        <button class="btn btn-primary" id="playAgainBtn" type="button">Nochmal spielen</button>
+      </div>
+    </section>
+
+    <dialog id="categoriesDialog" class="categories-dialog">
+      <div class="dialog-head">
+        <div>
+          <p class="kicker">Masterliste</p>
+          <h2>Alle Kategorien</h2>
+        </div>
+        <button class="icon-btn" id="closeDialogBtn" type="button" aria-label="Schließen">✕</button>
+      </div>
+      <div class="dialog-tools">
+        <input id="categorySearch" type="search" placeholder="Kategorie suchen …">
+        <span id="dialogCount">77</span>
+      </div>
+      <ol id="categoriesList" class="categories-list"></ol>
+    </dialog>
+  </main>
+
+  <footer>
+    Inoffizielles Fan-Spiel · ohne Verbindung zu Hasbro oder den offiziellen MLP-Markeninhabern.
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
