@@ -38,19 +38,22 @@ function winnerGifForGame(key) {
 }
 
 function chooseWinnerGif(room = state.room) {
+  // Realtime Database keys must not contain dots. Therefore we store used GIFs
+  // by their numeric index ("0" ... "9"), never by filenames like winner-01.gif.
   const usedMap = room?.usedWinnerGifs && typeof room.usedWinnerGifs === "object" ? room.usedWinnerGifs : {};
-  let available = WINNER_GIFS.filter(file => !usedMap[file]);
+  let availableIndexes = WINNER_GIFS.map((_, index) => index).filter(index => !usedMap[String(index)]);
   let resetBag = false;
 
-  if (!available.length) {
+  if (!availableIndexes.length) {
     resetBag = true;
     const last = room?.lastWinnerGif || "";
-    available = WINNER_GIFS.filter(file => file !== last);
-    if (!available.length) available = [...WINNER_GIFS];
+    const lastIndex = WINNER_GIFS.indexOf(last);
+    availableIndexes = WINNER_GIFS.map((_, index) => index).filter(index => index !== lastIndex);
+    if (!availableIndexes.length) availableIndexes = WINNER_GIFS.map((_, index) => index);
   }
 
-  const selected = available[Math.floor(Math.random() * available.length)];
-  return { selected, resetBag };
+  const selectedIndex = availableIndexes[Math.floor(Math.random() * availableIndexes.length)];
+  return { selected: WINNER_GIFS[selectedIndex], selectedIndex, resetBag };
 }
 
 function normalizeAnswer(value) {
@@ -1197,24 +1200,44 @@ async function finishGame() {
   const now = serverNow();
   const gifChoice = chooseWinnerGif(state.room);
   const selectedWinnerGif = gifChoice.selected;
+  const selectedWinnerGifIndex = gifChoice.selectedIndex;
+  const winnerButton = $("nextRoundBtn");
+  if (winnerButton) {
+    winnerButton.disabled = true;
+    winnerButton.textContent = "Gewinner wird ermittelt… 👑";
+  }
 
-  const transaction = await runTransaction(ref(db, `rooms/${state.roomCode}`), room => {
-    if (!room) return;
-    if (room.winnerRecorded) return;
-    room.status = "finished";
-    room.finishedAt = now;
-    room.winnerRecorded = true;
-    room.winnerScore = maxScore;
-    room.winnerGif = selectedWinnerGif;
-    room.lastWinnerGif = selectedWinnerGif;
-    if (gifChoice.resetBag || !room.usedWinnerGifs || typeof room.usedWinnerGifs !== "object") room.usedWinnerGifs = {};
-    room.usedWinnerGifs[selectedWinnerGif] = true;
-    room.winnerUids = {};
-    winnerUids.forEach(uid => { room.winnerUids[uid] = true; });
-    return room;
-  });
+  let transaction;
+  try {
+    transaction = await runTransaction(ref(db, `rooms/${state.roomCode}`), room => {
+      if (!room) return;
+      if (room.winnerRecorded) return room;
+      room.status = "finished";
+      room.finishedAt = now;
+      room.winnerRecorded = true;
+      room.winnerScore = maxScore;
+      room.winnerGif = selectedWinnerGif;
+      room.lastWinnerGif = selectedWinnerGif;
+      if (gifChoice.resetBag || !room.usedWinnerGifs || typeof room.usedWinnerGifs !== "object") room.usedWinnerGifs = {};
+      room.usedWinnerGifs[String(selectedWinnerGifIndex)] = true;
+      room.winnerUids = {};
+      winnerUids.forEach(uid => { room.winnerUids[uid] = true; });
+      return room;
+    });
+  } catch (error) {
+    console.error("Gewinner konnte nicht ermittelt werden", error);
+    if (winnerButton) {
+      winnerButton.disabled = false;
+      winnerButton.textContent = "Gewinner anzeigen 👑";
+    }
+    setScoreMessage("Der Gewinner konnte gerade nicht angezeigt werden. Bitte versuche es nochmal.", true);
+    return;
+  }
 
-  if (!transaction.committed) return;
+  if (!transaction.committed) {
+    if (winnerButton) winnerButton.disabled = false;
+    return;
+  }
 
   for (const uid of winnerUids) {
     try {
