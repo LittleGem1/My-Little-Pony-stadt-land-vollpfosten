@@ -168,6 +168,24 @@ function setConnection(text, mode = "") {
   if (mode) el.classList.add(mode);
 }
 
+function syncTimeButtons(targetId, value, disabled = false) {
+  const target = $(targetId);
+  if (!target) return;
+  target.value = String(value);
+  document.querySelectorAll(`[data-time-group="${targetId}"] .time-option`).forEach(button => {
+    button.classList.toggle("selected", String(button.dataset.seconds) === String(value));
+    button.disabled = disabled;
+    button.setAttribute("aria-pressed", String(button.dataset.seconds) === String(value) ? "true" : "false");
+  });
+}
+
+function setScoreMessage(message = "", isError = false) {
+  const el = $("scoreMessage");
+  if (!el) return;
+  el.textContent = message;
+  el.style.color = isError ? "var(--danger)" : "var(--gold)";
+}
+
 function readLocalProfile() {
   try {
     const parsed = JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}");
@@ -288,6 +306,28 @@ function totalTermsTarget(room = state.room) {
   return Number(room?.settings?.totalTerms || room?.settings?.categoryAmount || 10);
 }
 
+function isNoTimePressure(round = roundData()) {
+  if (round && Object.prototype.hasOwnProperty.call(round, "noTimePressure")) return Boolean(round.noTimePressure);
+  return Boolean(state.room?.settings?.noTimePressure);
+}
+
+function answerReadyBucket(round) {
+  return round?.mode === "three-sequential" ? `step${Number(round.activeStep || 0)}` : "round";
+}
+
+function answerReadyState(round) {
+  const bucket = answerReadyBucket(round);
+  const readyMap = round?.answerReady?.[bucket] || {};
+  const players = playerEntries();
+  const ready = players.reduce((sum, [uid]) => sum + (readyMap?.[uid] ? 1 : 0), 0);
+  return {
+    bucket,
+    ready,
+    total: players.length,
+    meReady: Boolean(state.user?.uid && readyMap?.[state.user.uid])
+  };
+}
+
 function playerEntries(room = state.room) {
   return Object.entries(room?.players || {}).sort((a, b) => Number(a[1]?.joinedAt || 0) - Number(b[1]?.joinedAt || 0));
 }
@@ -309,19 +349,33 @@ function lettersForRound(round) {
   return [];
 }
 
-function totalScoreFor(uid, room = state.room) {
-  let total = 0;
-  Object.values(room?.rounds || {}).forEach(round => {
-    Object.values(round?.scores?.[uid] || {}).forEach(value => {
-      const points = Number(value);
-      if (Number.isFinite(points)) total += points;
-    });
+function formatScore(value) {
+  const number = Number(value) || 0;
+  return Number.isInteger(number) ? String(number) : number.toFixed(1).replace(".", ",");
+}
+
+function receivedScoreForSlot(round, targetUid, slotIndex) {
+  const votes = [];
+  Object.entries(round?.votes || {}).forEach(([voterUid, targets]) => {
+    if (voterUid === targetUid) return;
+    const raw = targets?.[targetUid]?.[slotIndex];
+    if (raw === undefined || raw === null || raw === "") return;
+    const points = Number(raw);
+    if (Number.isFinite(points)) votes.push(points);
   });
-  return total;
+  if (votes.length) return votes.reduce((sum, points) => sum + points, 0) / votes.length;
+
+  // Abwärtskompatibilität zu Räumen aus der alten Version.
+  const legacy = round?.scores?.[targetUid]?.[slotIndex];
+  return legacy === undefined || legacy === null ? 0 : (Number(legacy) || 0);
 }
 
 function roundScoreFor(uid, round) {
-  return Object.values(round?.scores?.[uid] || {}).reduce((sum, value) => sum + (Number(value) || 0), 0);
+  return answerSlots(round, true).reduce((sum, slot) => sum + receivedScoreForSlot(round, uid, slot.slotIndex), 0);
+}
+
+function totalScoreFor(uid, room = state.room) {
+  return Object.values(room?.rounds || {}).reduce((sum, round) => sum + roundScoreFor(uid, round), 0);
 }
 
 function usedCategoryIndices(room = state.room) {
@@ -449,7 +503,8 @@ async function createRoom() {
         currentRoundNumber: 0,
         settings: {
           totalTerms: Number($("categoryAmount").value),
-          timerLength: Number($("timerLength").value)
+          timerLength: Number($("timerLength").value),
+          noTimePressure: Boolean($("noTimePressure").checked)
         },
         players: {
           [state.user.uid]: {
@@ -545,13 +600,17 @@ function renderLobby() {
   }).join("");
 
   const settings = state.room.settings || {};
+  const noTimePressure = Boolean(settings.noTimePressure);
   $("lobbyCategoryAmount").value = String(settings.totalTerms || settings.categoryAmount || 10);
-  $("lobbyTimerLength").value = String(settings.timerLength ?? 90);
+  $("lobbyNoTimePressure").checked = noTimePressure;
+  $("lobbyNoTimePressure").disabled = !state.isHost;
+  syncTimeButtons("lobbyTimerLength", settings.timerLength ?? 90, !state.isHost || noTimePressure);
   $("lobbyCategoryAmount").disabled = !state.isHost;
-  $("lobbyTimerLength").disabled = !state.isHost;
   $("hostSettingsHint").textContent = state.isHost
-    ? "Du bist Host. Änderungen gelten sofort für alle. Je 10 Begriffe wird ein kompletter 4→3→2→1-Levelblock gespielt."
-    : "Nur der Host kann diese Einstellungen ändern.";
+    ? (noTimePressure
+      ? "Ohne Zeitdruck ist aktiv: Jeder darf in Ruhe fertig werden. Weiter geht es erst, wenn alle fertig sind."
+      : "Du bist Host. Änderungen gelten sofort für alle. Je 10 Begriffe wird ein kompletter 4→3→2→1-Levelblock gespielt.")
+    : (noTimePressure ? "Ohne Zeitdruck ist aktiv. Erst wenn alle fertig sind, geht es weiter." : "Nur der Host kann diese Einstellungen ändern.");
 }
 
 function currentRoundKey() {
@@ -570,7 +629,7 @@ function renderGame() {
   $("levelInstruction").textContent = levelInstruction(round);
   const me = state.room.players?.[state.user.uid];
   $("playerDisplay").textContent = `${me?.name || state.playerName || "Pony"}, los geht's!`;
-  $("totalScoreDisplay").textContent = totalScoreFor(state.user.uid);
+  $("totalScoreDisplay").textContent = formatScore(totalScoreFor(state.user.uid));
 
   const slots = answerSlots(round, false);
   if (round.mode === "four-different") {
@@ -583,9 +642,26 @@ function renderGame() {
     $("letterDisplay").classList.remove("multi-letter");
   }
 
-  $("stopHint").textContent = round.mode === "three-sequential"
-    ? `STOP beendet Frage ${Number(round.activeStep || 0) + 1}. Danach kommt ${Number(round.activeStep || 0) < 2 ? "direkt die nächste Frage" : "die Auswertung"}.`
-    : "Jeder Spieler kann STOP drücken. Dann endet dieses Level gleichzeitig für alle.";
+  const relaxedMode = isNoTimePressure(round);
+  const readyState = relaxedMode ? answerReadyState(round) : null;
+  $("timerStatLabel").textContent = relaxedMode ? "Ohne Zeitdruck" : "Zeit";
+  $("timerCard").classList.toggle("relaxed", relaxedMode);
+  $("restartTimerBtn").classList.toggle("hidden", relaxedMode || !state.isHost);
+  $("stopRoundBtn").classList.toggle("btn-finished", relaxedMode);
+  $("stopRoundBtn").textContent = relaxedMode
+    ? (readyState.meReady ? "Fertig ✓" : "Ich bin fertig ✓")
+    : "STOP FÜR ALLE!";
+  $("stopRoundBtn").disabled = Boolean(relaxedMode && readyState.meReady);
+
+  if (relaxedMode) {
+    $("stopHint").textContent = readyState.meReady
+      ? `Du bist fertig · ${readyState.ready}/${readyState.total} Spieler fertig. Warte entspannt auf die anderen.`
+      : `${readyState.ready}/${readyState.total} Spieler fertig. Du kannst in Ruhe weitermachen – niemand kann deine Zeit beenden.`;
+  } else {
+    $("stopHint").textContent = round.mode === "three-sequential"
+      ? `STOP beendet Frage ${Number(round.activeStep || 0) + 1}. Danach kommt ${Number(round.activeStep || 0) < 2 ? "direkt die nächste Frage" : "die Auswertung"}.`
+      : "Jeder Spieler kann STOP drücken. Dann endet dieses Level gleichzeitig für alle.";
+  }
 
   const key = currentRoundKey();
   if (state.localRoundKey !== key) {
@@ -623,14 +699,27 @@ function renderGame() {
     setTimeout(() => form.querySelector(".answer-input")?.focus(), 120);
   }
 
+  $("answersForm").querySelectorAll(".answer-input").forEach(input => {
+    input.disabled = Boolean(relaxedMode && readyState?.meReady);
+  });
+
   startRoundClock(round);
 }
 
 function startRoundClock(round) {
   stopLocalTimer();
+  const timerCard = $("timerCard");
+  timerCard.classList.remove("warning", "danger");
+
+  if (isNoTimePressure(round)) {
+    timerCard.classList.add("relaxed");
+    $("timerDisplay").textContent = "∞";
+    return;
+  }
+
+  timerCard.classList.remove("relaxed");
   const updateClock = () => {
     const duration = Number(round.duration || state.room.settings?.timerLength || 90);
-    const timerCard = $("timerCard");
     timerCard.classList.remove("warning", "danger");
     const seconds = Math.max(0, Math.ceil((Number(round.endsAt) - serverNow()) / 1000));
     $("timerDisplay").textContent = formatTime(seconds);
@@ -650,13 +739,15 @@ async function updateLobbySettings() {
   if (!state.isHost || !state.roomCode) return;
   await update(ref(db, `rooms/${state.roomCode}/settings`), {
     totalTerms: Number($("lobbyCategoryAmount").value),
-    timerLength: Number($("lobbyTimerLength").value)
+    timerLength: Number($("lobbyTimerLength").value),
+    noTimePressure: Boolean($("lobbyNoTimePressure").checked)
   });
 }
 
 function makeRound(nextNumber) {
   const meta = levelMeta(nextNumber);
   const duration = Number(state.room.settings?.timerLength ?? 90);
+  const noTimePressure = Boolean(state.room.settings?.noTimePressure);
   const categoryIndices = pickCategoryIndices(modeCategoryCount(meta.mode));
   const startedAt = serverNow();
   const round = {
@@ -665,10 +756,12 @@ function makeRound(nextNumber) {
     blockNumber: meta.blockNumber,
     categoryIndices,
     duration,
+    noTimePressure,
     startedAt,
-    endsAt: startedAt + duration * 1000,
+    endsAt: noTimePressure ? 0 : startedAt + duration * 1000,
     answers: {},
-    scores: {},
+    answerReady: {},
+    votes: {},
     ready: {}
   };
 
@@ -692,6 +785,64 @@ async function startNextRound() {
     currentRoundNumber: nextNumber,
     [`rounds/${nextNumber}`]: round
   });
+}
+
+async function saveVisibleAnswers() {
+  if (!state.user || !state.roomCode || state.room?.status !== "playing") return;
+  const roundNumber = Number(state.room.currentRoundNumber);
+  const writes = Array.from($("answersForm").querySelectorAll(".answer-input")).map(input => {
+    const answerIndex = input.dataset.index;
+    const value = input.value.slice(0, 120);
+    return set(ref(db, `rooms/${state.roomCode}/rounds/${roundNumber}/answers/${state.user.uid}/${answerIndex}`), value || null);
+  });
+  await Promise.all(writes);
+}
+
+async function markAnswerFinished() {
+  if (!state.user || !state.roomCode || state.room?.status !== "playing") return;
+  try {
+    await saveVisibleAnswers();
+  } catch (error) {
+    console.error("Antworten konnten vor dem Fertigmelden nicht gespeichert werden", error);
+  }
+  const expectedRoundNumber = Number(state.room.currentRoundNumber);
+  const expectedStep = Number(roundData()?.activeStep || 0);
+  const now = serverNow();
+
+  try {
+    await runTransaction(ref(db, `rooms/${state.roomCode}`), room => {
+      if (!room || room.status !== "playing" || Number(room.currentRoundNumber) !== expectedRoundNumber) return;
+      const round = room.rounds?.[expectedRoundNumber];
+      if (!round || !Boolean(round.noTimePressure ?? room.settings?.noTimePressure)) return;
+      if (round.mode === "three-sequential" && Number(round.activeStep || 0) !== expectedStep) return;
+
+      const bucket = round.mode === "three-sequential" ? `step${Number(round.activeStep || 0)}` : "round";
+      round.answerReady = round.answerReady || {};
+      round.answerReady[bucket] = round.answerReady[bucket] || {};
+      round.answerReady[bucket][state.user.uid] = true;
+
+      const playerUids = Object.keys(room.players || {});
+      const allFinished = playerUids.length > 0 && playerUids.every(uid => Boolean(round.answerReady[bucket]?.[uid]));
+      if (!allFinished) return room;
+
+      if (round.mode === "three-sequential") {
+        const activeStep = Number(round.activeStep || 0);
+        if (activeStep < 2) {
+          round.activeStep = activeStep + 1;
+          round.startedAt = now;
+          round.lastAdvanceReason = "Alle fertig";
+          return room;
+        }
+      }
+
+      room.status = "scoring";
+      round.stoppedAt = now;
+      round.stopReason = "Alle fertig";
+      return room;
+    });
+  } catch (error) {
+    console.error("Fertig-Status konnte nicht gespeichert werden", error);
+  }
 }
 
 async function advanceOrScore(reason = "STOP") {
@@ -755,6 +906,7 @@ async function rerollLetters() {
       round.letter = randomLetter(round.letter || "");
       round.answers = {};
     }
+    round.answerReady = {};
     return round;
   });
 }
@@ -762,7 +914,7 @@ async function rerollLetters() {
 async function restartTimerForAll() {
   if (!state.isHost) return;
   const round = roundData();
-  if (!round) return;
+  if (!round || isNoTimePressure(round)) return;
   const duration = Number(round.duration ?? state.room.settings?.timerLength ?? 90);
   const now = serverNow();
   await update(ref(db, `rooms/${state.roomCode}/rounds/${state.room.currentRoundNumber}`), {
@@ -778,6 +930,23 @@ function playerReadyCount(round) {
   return { ready, total: players.length };
 }
 
+function requiredVotesFor(voterUid, round) {
+  const slots = answerSlots(round, true);
+  const missing = [];
+  playerEntries().forEach(([targetUid, player]) => {
+    if (targetUid === voterUid) return;
+    slots.forEach(slot => {
+      const answer = String(round?.answers?.[targetUid]?.[slot.slotIndex] || "").trim();
+      if (!answer) return;
+      const vote = round?.votes?.[voterUid]?.[targetUid]?.[slot.slotIndex];
+      if (vote === undefined || vote === null || vote === "") {
+        missing.push({ targetUid, playerName: player?.name || "Pony", slotIndex: slot.slotIndex });
+      }
+    });
+  });
+  return missing;
+}
+
 function renderScoring() {
   stopLocalTimer();
   showPanel(scorePanel);
@@ -786,10 +955,12 @@ function renderScoring() {
 
   const roundNumber = state.room.currentRoundNumber;
   $("scoreRoundLabel").textContent = `Auswertung · ${levelTitle(round)} · Raum ${state.roomCode}`;
-  $("roundScoreDisplay").textContent = roundScoreFor(state.user.uid, round);
+  $("roundScoreDisplay").textContent = formatScore(roundScoreFor(state.user.uid, round));
+  setScoreMessage("");
 
   const slots = answerSlots(round, true);
   const players = playerEntries();
+  const meReady = Boolean(round.ready?.[state.user.uid]);
   const container = $("scoreList");
   container.innerHTML = "";
 
@@ -798,19 +969,22 @@ function renderScoring() {
     item.className = "score-item";
     const category = CATEGORIES[slot.categoryIndex] || "Unbekannte Kategorie";
     const rows = players.map(([uid, player]) => {
-      const answer = round.answers?.[uid]?.[slot.slotIndex] || "";
+      const answer = String(round.answers?.[uid]?.[slot.slotIndex] || "");
       const isMe = uid === state.user.uid;
-      const score = round.scores?.[uid]?.[slot.slotIndex];
       let scoring = "";
+
       if (isMe) {
+        const received = receivedScoreForSlot(round, uid, slot.slotIndex);
         scoring = answer.trim()
-          ? `<div class="score-buttons" data-index="${slot.slotIndex}">${[0, 5, 10, 20].map(points => `<button class="point-btn ${points === 0 ? "zero" : ""} ${points === 20 ? "twenty" : ""} ${Number(score) === points ? "selected" : ""}" type="button" data-points="${points}">${points}</button>`).join("")}</div>`
-          : `<span class="empty-answer">0 Punkte</span>`;
-      } else if (score !== undefined && score !== null) {
-        scoring = `<strong>${Number(score) || 0} P.</strong>`;
+          ? `<span class="received-score">von anderen: ${formatScore(received)} P.</span>`
+          : `<span class="empty-answer">0 P. · leer</span>`;
+      } else if (!answer.trim()) {
+        scoring = `<span class="empty-answer">0 P. · keine Antwort</span>`;
       } else {
-        scoring = `<span class="empty-answer">—</span>`;
+        const myVote = round.votes?.[state.user.uid]?.[uid]?.[slot.slotIndex];
+        scoring = `<div class="score-buttons" data-target="${escapeHtml(uid)}" data-index="${slot.slotIndex}">${[0, 5, 10, 20].map(points => `<button class="point-btn ${points === 0 ? "zero" : ""} ${points === 20 ? "twenty" : ""} ${Number(myVote) === points ? "selected" : ""}" type="button" data-points="${points}" ${meReady ? "disabled" : ""}>${points}</button>`).join("")}</div>`;
       }
+
       return `<div class="comparison-row ${isMe ? "me" : ""}">
         <div class="comparison-name">${escapeHtml(player.name || "Pony")}${isMe ? " (du)" : ""}</div>
         <div class="comparison-answer ${answer ? "" : "empty-answer"}">${answer ? escapeHtml(answer) : "keine Antwort"}</div>
@@ -826,17 +1000,25 @@ function renderScoring() {
   container.querySelectorAll(".score-buttons .point-btn").forEach(button => {
     button.addEventListener("click", async () => {
       const group = button.closest(".score-buttons");
+      const targetUid = group.dataset.target;
       const answerIndex = group.dataset.index;
       const points = Number(button.dataset.points);
-      await set(ref(db, `rooms/${state.roomCode}/rounds/${roundNumber}/scores/${state.user.uid}/${answerIndex}`), points);
+      if (!targetUid || targetUid === state.user.uid || meReady) return;
+      await set(ref(db, `rooms/${state.roomCode}/rounds/${roundNumber}/votes/${state.user.uid}/${targetUid}/${answerIndex}`), points);
     });
   });
 
   const readyState = playerReadyCount(round);
   $("readyStatus").textContent = `${readyState.ready}/${readyState.total} Spieler fertig`;
-  const meReady = Boolean(round.ready?.[state.user.uid]);
   $("readyBtn").disabled = meReady;
-  $("readyBtn").textContent = meReady ? "Bewertung abgeschlossen ✓" : "Meine Bewertung ist fertig";
+  $("readyBtn").textContent = meReady ? "Bewertung abgeschlossen ✓" : "Bewertung der anderen fertig";
+
+  const missing = requiredVotesFor(state.user.uid, round);
+  if (!meReady && missing.length) {
+    setScoreMessage(`Noch ${missing.length} Antwort${missing.length === 1 ? "" : "en"} der anderen bewerten.`);
+  } else if (meReady) {
+    setScoreMessage("Deine Bewertungen sind gespeichert. ✓");
+  }
 
   const gameComplete = playedTermCount() >= totalTermsTarget();
   $("nextRoundBtn").textContent = gameComplete ? "Gewinner anzeigen 👑" : "Nächstes Level starten";
@@ -850,6 +1032,11 @@ function renderScoring() {
 async function markReady() {
   const round = roundData();
   if (!round) return;
+  const missing = requiredVotesFor(state.user.uid, round);
+  if (missing.length) {
+    setScoreMessage(`Bitte bewerte zuerst noch ${missing.length} Antwort${missing.length === 1 ? "" : "en"} der anderen.`, true);
+    return;
+  }
   await set(ref(db, `rooms/${state.roomCode}/rounds/${state.room.currentRoundNumber}/ready/${state.user.uid}`), true);
 }
 
@@ -908,7 +1095,7 @@ function renderEnd() {
     <div class="leader-row">
       <div class="leader-rank">#${index + 1}</div>
       <div class="leader-name">${escapeHtml(player.name)}${player.uid === state.user.uid ? " (du)" : ""}<small>🏆 ${player.wins} ${player.wins === 1 ? "Sieg" : "Siege"}</small></div>
-      <div class="leader-score">${player.score} P.</div>
+      <div class="leader-score">${formatScore(player.score)} P.</div>
     </div>
   `).join("");
 
@@ -919,7 +1106,7 @@ function renderEnd() {
     state.winnerPopupKey = popupKey;
     $("winnerName").textContent = winners.map(player => player.name).join(" & ");
     $("winnerTitle").textContent = winners.length > 1 ? "Pony-Champions!" : "Pony-Champion!";
-    $("winnerScore").textContent = `${maxScore} Punkte`;
+    $("winnerScore").textContent = `${formatScore(maxScore)} Punkte`;
     $("winnerPopup").classList.remove("hidden");
   }
 }
@@ -981,6 +1168,25 @@ async function hostNextAction() {
   else await startNextRound();
 }
 
+document.querySelectorAll(".time-choice .time-option").forEach(button => {
+  button.addEventListener("click", async () => {
+    const group = button.closest(".time-choice");
+    const targetId = group?.dataset.timeGroup;
+    if (!targetId) return;
+    if (targetId === "lobbyTimerLength" && !state.isHost) return;
+    syncTimeButtons(targetId, Number(button.dataset.seconds), false);
+    if (targetId === "lobbyTimerLength") await updateLobbySettings();
+  });
+});
+function syncSetupPressureUI() {
+  const relaxed = Boolean($("noTimePressure").checked);
+  syncTimeButtons("timerLength", Number($("timerLength").value || 90), relaxed);
+}
+
+syncTimeButtons("timerLength", 90, false);
+$("noTimePressure").addEventListener("change", syncSetupPressureUI);
+$("lobbyNoTimePressure").addEventListener("change", updateLobbySettings);
+
 $("createRoomBtn").addEventListener("click", createRoom);
 $("joinRoomBtn").addEventListener("click", joinRoom);
 $("playerName").addEventListener("change", () => {
@@ -990,11 +1196,14 @@ $("playerName").addEventListener("change", () => {
 $("roomCodeInput").addEventListener("input", event => { event.target.value = normalizeRoomCode(event.target.value); });
 $("roomCodeInput").addEventListener("keydown", event => { if (event.key === "Enter") joinRoom(); });
 $("lobbyCategoryAmount").addEventListener("change", updateLobbySettings);
-$("lobbyTimerLength").addEventListener("change", updateLobbySettings);
+
 $("hostStartBtn").addEventListener("click", startNextRound);
 $("leaveRoomBtn").addEventListener("click", leaveRoom);
 $("leaveRoomFromEndBtn").addEventListener("click", leaveRoom);
-$("stopRoundBtn").addEventListener("click", () => advanceOrScore("STOP gedrückt"));
+$("stopRoundBtn").addEventListener("click", () => {
+  if (isNoTimePressure()) markAnswerFinished();
+  else advanceOrScore("STOP gedrückt");
+});
 $("newLetterBtn").addEventListener("click", rerollLetters);
 $("restartTimerBtn").addEventListener("click", restartTimerForAll);
 $("readyBtn").addEventListener("click", markReady);
