@@ -388,11 +388,74 @@ function playedTermCount(room = state.room) {
   return Object.values(room?.rounds || {}).reduce((sum, round) => sum + categoryIndicesForRound(round).length, 0);
 }
 
+// Fisher-Yates statt sort(() => Math.random() - .5): echte, gleichmäßige Durchmischung.
+function shuffled(values) {
+  const copy = [...values];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    let j;
+    if (globalThis.crypto?.getRandomValues) {
+      const buffer = new Uint32Array(1);
+      globalThis.crypto.getRandomValues(buffer);
+      j = buffer[0] % (i + 1);
+    } else {
+      j = Math.floor(Math.random() * (i + 1));
+    }
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function categoryHistory(room = state.room) {
+  const raw = room?.categoryHistory;
+  const values = Array.isArray(raw) ? raw : (raw && typeof raw === "object" ? Object.values(raw) : []);
+  return values.map(Number).filter(index => Number.isInteger(index) && index >= 0 && index < CATEGORIES.length);
+}
+
+function categoryTheme(index) {
+  const text = String(CATEGORIES[index] || "").toLowerCase();
+  if (text.includes("discord")) return "discord";
+  if (text.includes("celestia") || text.includes("luna") || text.includes("prinzessin")) return "royal";
+  if (text.includes("twilight")) return "twilight";
+  if (text.includes("pinkie")) return "pinkie";
+  if (text.includes("rainbow")) return "rainbow";
+  if (text.includes("fluttershy")) return "fluttershy";
+  if (text.includes("rarity")) return "rarity";
+  if (text.includes("applejack")) return "applejack";
+  if (text.includes("chrysalis")) return "chrysalis";
+  if (text.includes("cutie")) return "cutiemark";
+  if (text.includes("zauber") || text.includes("magisch") || text.includes("magie") || text.includes("trank")) return "magic";
+  return `other-${index}`;
+}
+
 function pickCategoryIndices(count, room = state.room) {
-  const used = new Set(usedCategoryIndices(room));
-  let available = CATEGORIES.map((_, index) => index).filter(index => !used.has(index));
-  if (available.length < count) available = CATEGORIES.map((_, index) => index);
-  return available.sort(() => Math.random() - 0.5).slice(0, count);
+  // Innerhalb eines Spiels: NIE dieselbe Kategorie doppelt, solange der Pool reicht.
+  const usedThisGame = new Set(usedCategoryIndices(room));
+  const allUnused = CATEGORIES.map((_, index) => index).filter(index => !usedThisGame.has(index));
+  if (!allUnused.length) return [];
+
+  // Zusätzlich möglichst keine Kategorien aus den letzten Spielen wiederholen.
+  const recent = new Set(categoryHistory(room).slice(-40));
+  const fresh = shuffled(allUnused.filter(index => !recent.has(index)));
+  const older = shuffled(allUnused.filter(index => recent.has(index)));
+  const pool = [...fresh, ...older];
+
+  // In einer Mehrfachrunde möglichst verschiedene Themen mischen (z.B. nicht 3x Discord direkt nebeneinander).
+  const picked = [];
+  const themes = new Set();
+  for (const index of pool) {
+    if (picked.length >= count) break;
+    const theme = categoryTheme(index);
+    if (themes.has(theme)) continue;
+    picked.push(index);
+    themes.add(theme);
+  }
+  if (picked.length < count) {
+    for (const index of pool) {
+      if (picked.length >= count) break;
+      if (!picked.includes(index)) picked.push(index);
+    }
+  }
+  return picked;
 }
 
 function levelMeta(roundNumber) {
@@ -629,7 +692,7 @@ function renderGame() {
   $("levelInstruction").textContent = levelInstruction(round);
   const me = state.room.players?.[state.user.uid];
   $("playerDisplay").textContent = `${me?.name || state.playerName || "Pony"}, los geht's!`;
-  $("totalScoreDisplay").textContent = formatScore(totalScoreFor(state.user.uid));
+  $("totalScoreDisplay").textContent = "🔒";
 
   const slots = answerSlots(round, false);
   if (round.mode === "four-different") {
@@ -779,10 +842,12 @@ async function startNextRound() {
   if (playedTermCount() >= totalTermsTarget()) return finishGame();
   const nextNumber = Number(state.room.currentRoundNumber || 0) + 1;
   const round = makeRound(nextNumber);
+  const history = [...categoryHistory(), ...categoryIndicesForRound(round)].slice(-40);
   state.localRoundKey = "";
   await update(ref(db, `rooms/${state.roomCode}`), {
     status: "playing",
     currentRoundNumber: nextNumber,
+    categoryHistory: history,
     [`rounds/${nextNumber}`]: round
   });
 }
@@ -962,10 +1027,11 @@ function renderScoring() {
   const players = playerEntries();
   const meReady = Boolean(round.ready?.[state.user.uid]);
   const readyState = playerReadyCount(round);
-  const revealScores = readyState.total > 0 && readyState.ready >= readyState.total;
+  const allRatingsFinished = readyState.total > 0 && readyState.ready >= readyState.total;
   const container = $("scoreList");
   container.innerHTML = "";
-  $("roundScoreDisplay").textContent = revealScores ? formatScore(roundScoreFor(state.user.uid, round)) : "🔒";
+  // Eigene Punkte bleiben während des gesamten Spiels verborgen.
+  $("roundScoreDisplay").textContent = "🔒";
 
   slots.forEach((slot, visualIndex) => {
     const item = document.createElement("div");
@@ -978,12 +1044,9 @@ function renderScoring() {
 
       if (isMe) {
         if (!answer.trim()) {
-          scoring = `<span class="empty-answer">0 P. · leer</span>`;
-        } else if (revealScores) {
-          const received = receivedScoreForSlot(round, uid, slot.slotIndex);
-          scoring = `<span class="received-score">Ergebnis: ${formatScore(received)} P.</span>`;
+          scoring = `<span class="score-hidden">🔒 Eigene Punkte bis zum Spielende verborgen · Antwort leer</span>`;
         } else {
-          scoring = `<span class="score-hidden">🔒 Bewertung bis zum Ende verborgen</span>`;
+          scoring = `<span class="score-hidden">🔒 Eigene Punkte bis zum Spielende verborgen</span>`;
         }
       } else if (!answer.trim()) {
         scoring = `<span class="empty-answer">0 P. · keine Antwort</span>`;
@@ -1020,14 +1083,14 @@ function renderScoring() {
   $("readyBtn").textContent = meReady ? "Bewertung abgeschlossen ✓" : "Bewertung der anderen fertig";
 
   const missing = requiredVotesFor(state.user.uid, round);
-  if (revealScores) {
-    setScoreMessage("Alle Bewertungen sind abgeschlossen. Die Punkte sind jetzt für alle sichtbar. 👑");
+  if (allRatingsFinished) {
+    setScoreMessage("Alle Bewertungen dieser Runde sind abgeschlossen. Dein eigener Punktestand bleibt bis zum Spielende verborgen. 🔒");
   } else if (!meReady && missing.length) {
-    setScoreMessage(`Noch ${missing.length} Antwort${missing.length === 1 ? "" : "en"} der anderen bewerten. Die vergebenen Punkte bleiben bis zum Ende verborgen.`);
+    setScoreMessage(`Noch ${missing.length} Antwort${missing.length === 1 ? "" : "en"} der anderen bewerten. Dein eigener Punktestand bleibt bis zum Spielende verborgen.`);
   } else if (meReady) {
-    setScoreMessage("Deine Bewertungen sind gespeichert. Die Punkte werden erst sichtbar, wenn alle fertig sind. ✓");
+    setScoreMessage("Deine Bewertungen sind gespeichert. Deinen eigenen Punktestand siehst du erst am Spielende. ✓");
   } else {
-    setScoreMessage("Bewerte die Antworten der anderen. Die vergebenen Punkte bleiben bis zum Ende verborgen.");
+    setScoreMessage("Bewerte die Antworten der anderen. Deinen eigenen Punktestand siehst du erst am Spielende.");
   }
 
   const gameComplete = playedTermCount() >= totalTermsTarget();
@@ -1228,9 +1291,19 @@ $("readyBtn").addEventListener("click", markReady);
 $("nextRoundBtn").addEventListener("click", hostNextAction);
 $("finishGameBtn").addEventListener("click", finishGame);
 $("backToLobbyBtn").addEventListener("click", backToLobby);
-$("winnerCloseBtn").addEventListener("click", () => $("winnerPopup").classList.add("hidden"));
+function closeWinnerPopup(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  $("winnerPopup").classList.add("hidden");
+}
+
+// Der komplette X-Button ist klick-/tippbar, nicht nur das Glyph selbst.
+$("winnerCloseBtn").addEventListener("click", closeWinnerPopup);
+$("winnerCloseBtn").addEventListener("pointerup", closeWinnerPopup);
 $("winnerPopup").addEventListener("click", event => {
-  if (event.target === $("winnerPopup")) $("winnerPopup").classList.add("hidden");
+  if (event.target === $("winnerPopup")) closeWinnerPopup(event);
 });
 
 const dialog = $("categoriesDialog");
