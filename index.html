@@ -206,6 +206,15 @@
     <section class="panel end-panel hidden" id="endPanel">
       <p class="kicker">Spiel beendet</p>
       <h2>Pony-Chaos abgeschlossen!</h2>
+      <div class="winner-inline" id="winnerCelebrationInline" aria-live="polite">
+        <img class="winner-inline-gif" id="winnerGifInline" src="winner-01.gif" alt="Animierte Pony-Siegerfeier">
+        <div>
+          <p class="kicker">Gewinner</p>
+          <h3 id="winnerInlineTitle">Pony-Champion!</h3>
+          <strong id="winnerInlineName">Little Gem</strong>
+          <span id="winnerInlineScore">0 Punkte</span>
+        </div>
+      </div>
       <div id="leaderboard" class="leaderboard"></div>
       <div class="button-row">
         <button class="btn btn-primary host-only hidden" id="backToLobbyBtn" type="button">Zurück in die Lobby</button>

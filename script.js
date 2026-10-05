@@ -37,8 +37,35 @@ function winnerGifForGame(key) {
   return WINNER_GIFS[Math.abs(hash) % WINNER_GIFS.length];
 }
 
-function randomWinnerGif() {
-  return WINNER_GIFS[Math.floor(Math.random() * WINNER_GIFS.length)];
+function chooseWinnerGif(room = state.room) {
+  const usedMap = room?.usedWinnerGifs && typeof room.usedWinnerGifs === "object" ? room.usedWinnerGifs : {};
+  let available = WINNER_GIFS.filter(file => !usedMap[file]);
+  let resetBag = false;
+
+  if (!available.length) {
+    resetBag = true;
+    const last = room?.lastWinnerGif || "";
+    available = WINNER_GIFS.filter(file => file !== last);
+    if (!available.length) available = [...WINNER_GIFS];
+  }
+
+  const selected = available[Math.floor(Math.random() * available.length)];
+  return { selected, resetBag };
+}
+
+function normalizeAnswer(value) {
+  return String(value ?? "").replace(/^\s+/, "").slice(0, 120);
+}
+
+function answerStartsWithLetter(value, letter) {
+  const cleaned = normalizeAnswer(value);
+  if (!cleaned) return true;
+  return cleaned.charAt(0).toLocaleUpperCase("de-DE") === String(letter || "").charAt(0).toLocaleUpperCase("de-DE");
+}
+
+function sanitizeAnswerForLetter(value, letter) {
+  const cleaned = normalizeAnswer(value);
+  return answerStartsWithLetter(cleaned, letter) ? cleaned : "";
 }
 
 const firebaseConfig = {
@@ -155,7 +182,8 @@ const state = {
   playerName: "",
   profileWins: 0,
   profileLoaded: false,
-  winnerPopupKey: ""
+  winnerPopupKey: "",
+  winnerDismissedKey: ""
 };
 
 const $ = id => document.getElementById(id);
@@ -765,22 +793,42 @@ function renderGame() {
       const row = document.createElement("div");
       row.className = "answer-row";
       const prefix = round.mode === "one-double" ? slot.variant : (round.mode === "three-sequential" ? slot.variant : `${visualIndex + 1}.`);
+      const initialAnswer = sanitizeAnswerForLetter(myAnswers[slot.slotIndex] || "", slot.letter);
       row.innerHTML = `
         <label class="answer-label" for="answer-${slot.slotIndex}">
           <span class="question-letter">${escapeHtml(slot.letter)}</span>
           <span><span class="answer-number">${escapeHtml(prefix)}</span>${escapeHtml(category)}</span>
         </label>
-        <input class="answer-input" id="answer-${slot.slotIndex}" data-index="${slot.slotIndex}" autocomplete="off" spellcheck="false" placeholder="Antwort mit ${escapeHtml(slot.letter)} …" value="${escapeHtml(myAnswers[slot.slotIndex] || "")}">
+        <input class="answer-input" id="answer-${slot.slotIndex}" data-index="${slot.slotIndex}" data-letter="${escapeHtml(slot.letter)}" autocomplete="off" spellcheck="false" autocapitalize="sentences" placeholder="Muss mit ${escapeHtml(slot.letter)} beginnen …" value="${escapeHtml(initialAnswer)}">
+        <div class="letter-rule-hint" aria-live="polite">Nur Antworten mit <strong>${escapeHtml(slot.letter)}</strong> am Anfang sind erlaubt.</div>
       `;
       form.appendChild(row);
     });
 
     form.querySelectorAll(".answer-input").forEach(input => {
       input.addEventListener("input", async event => {
-        const answerIndex = event.currentTarget.dataset.index;
-        const value = event.currentTarget.value.slice(0, 120);
+        const field = event.currentTarget;
+        const answerIndex = field.dataset.index;
+        const requiredLetter = field.dataset.letter || "";
+        const rawValue = normalizeAnswer(field.value);
+
+        if (rawValue && !answerStartsWithLetter(rawValue, requiredLetter)) {
+          field.value = "";
+          field.classList.add("wrong-letter");
+          field.placeholder = `Nur Wörter mit ${requiredLetter} am Anfang`;
+          setTimeout(() => field.classList.remove("wrong-letter"), 450);
+          try {
+            await set(ref(db, `rooms/${state.roomCode}/rounds/${state.room.currentRoundNumber}/answers/${state.user.uid}/${answerIndex}`), null);
+          } catch (error) {
+            console.error("Ungültige Antwort konnte nicht entfernt werden", error);
+          }
+          return;
+        }
+
+        field.value = rawValue;
+        field.placeholder = `Muss mit ${requiredLetter} beginnen …`;
         try {
-          await set(ref(db, `rooms/${state.roomCode}/rounds/${state.room.currentRoundNumber}/answers/${state.user.uid}/${answerIndex}`), value || null);
+          await set(ref(db, `rooms/${state.roomCode}/rounds/${state.room.currentRoundNumber}/answers/${state.user.uid}/${answerIndex}`), rawValue || null);
         } catch (error) {
           console.error("Antwort konnte nicht gespeichert werden", error);
         }
@@ -1154,7 +1202,8 @@ async function finishGame() {
   const maxScore = results[0].score;
   const winnerUids = results.filter(player => player.score === maxScore).map(player => player.uid);
   const now = serverNow();
-  const selectedWinnerGif = randomWinnerGif();
+  const gifChoice = chooseWinnerGif(state.room);
+  const selectedWinnerGif = gifChoice.selected;
 
   const transaction = await runTransaction(ref(db, `rooms/${state.roomCode}`), room => {
     if (!room) return;
@@ -1164,6 +1213,9 @@ async function finishGame() {
     room.winnerRecorded = true;
     room.winnerScore = maxScore;
     room.winnerGif = selectedWinnerGif;
+    room.lastWinnerGif = selectedWinnerGif;
+    if (gifChoice.resetBag || !room.usedWinnerGifs || typeof room.usedWinnerGifs !== "object") room.usedWinnerGifs = {};
+    room.usedWinnerGifs[selectedWinnerGif] = true;
     room.winnerUids = {};
     winnerUids.forEach(uid => { room.winnerUids[uid] = true; });
     return room;
@@ -1201,14 +1253,24 @@ function renderEnd() {
 
   const maxScore = results[0]?.score ?? 0;
   const winners = results.filter(player => player.score === maxScore);
+  const winnerNames = winners.map(player => player.name).join(" & ");
   const popupKey = String(state.room.finishedAt || "finished");
-  if (state.winnerPopupKey !== popupKey) {
+  const gifFile = state.room.winnerGif || winnerGifForGame(`${state.roomCode || "room"}-${popupKey}-${maxScore}`);
+  const gifSrc = `${gifFile}?v=${encodeURIComponent(popupKey)}`;
+
+  // Feste Siegeranzeige auf der Endseite: Diese sieht garantiert jeder Spieler im Raum.
+  $("winnerGifInline").src = gifSrc;
+  $("winnerInlineTitle").textContent = winners.length > 1 ? "Pony-Champions!" : "Pony-Champion!";
+  $("winnerInlineName").textContent = winnerNames;
+  $("winnerInlineScore").textContent = `${formatScore(maxScore)} Punkte`;
+
+  // Zusätzlich öffnet sich bei jedem Client einmal das große Sieger-Popup.
+  if (state.winnerDismissedKey !== popupKey) {
     state.winnerPopupKey = popupKey;
-    $("winnerName").textContent = winners.map(player => player.name).join(" & ");
+    $("winnerName").textContent = winnerNames;
     $("winnerTitle").textContent = winners.length > 1 ? "Pony-Champions!" : "Pony-Champion!";
     $("winnerScore").textContent = `${formatScore(maxScore)} Punkte`;
-    const gifFile = state.room.winnerGif || winnerGifForGame(`${state.roomCode || "room"}-${popupKey}-${maxScore}`);
-    $("winnerGif").src = `${gifFile}?v=${encodeURIComponent(popupKey)}`;
+    $("winnerGif").src = gifSrc;
     $("winnerPopup").classList.remove("hidden");
   }
 }
@@ -1217,6 +1279,7 @@ async function backToLobby() {
   if (!state.isHost || !state.roomCode) return;
   state.localRoundKey = "";
   state.winnerPopupKey = "";
+  state.winnerDismissedKey = "";
   await update(ref(db, `rooms/${state.roomCode}`), {
     status: "lobby",
     currentRoundNumber: 0,
@@ -1259,6 +1322,7 @@ function leaveRoomLocal(message = "") {
   state.localRoundKey = "";
   state.renderKey = "";
   state.winnerPopupKey = "";
+  state.winnerDismissedKey = "";
   $("winnerPopup").classList.add("hidden");
   setHostVisibility();
   showPanel(setupPanel);
@@ -1326,6 +1390,7 @@ function closeWinnerPopup(event) {
     event.preventDefault();
     event.stopPropagation();
   }
+  state.winnerDismissedKey = String(state.room?.finishedAt || state.winnerPopupKey || "finished");
   $("winnerPopup").classList.add("hidden");
 }
 
@@ -1333,6 +1398,19 @@ function closeWinnerPopup(event) {
 $("winnerCloseBtn").addEventListener("click", closeWinnerPopup);
 $("winnerPopup").addEventListener("click", event => {
   if (event.target === $("winnerPopup")) closeWinnerPopup(event);
+});
+
+["winnerGif", "winnerGifInline"].forEach(id => {
+  $(id).addEventListener("error", event => {
+    const img = event.currentTarget;
+    if (!img.dataset.fallbackTried) {
+      img.dataset.fallbackTried = "1";
+      img.src = `winner-01.gif?v=fallback-${Date.now()}`;
+    }
+  });
+  $(id).addEventListener("load", event => {
+    event.currentTarget.dataset.fallbackTried = "";
+  });
 });
 
 const dialog = $("categoriesDialog");

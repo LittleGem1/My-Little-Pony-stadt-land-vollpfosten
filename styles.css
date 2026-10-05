@@ -628,3 +628,48 @@ footer { width: min(1100px, calc(100% - 28px)); margin: 0 auto; padding: 0 0 34p
   font-size: .88rem;
   white-space: nowrap;
 }
+
+
+/* V11: Sieger-GIF ist zusätzlich fest auf der Endauswertung sichtbar. */
+.winner-inline {
+  display: grid;
+  grid-template-columns: minmax(120px, 210px) minmax(0, 1fr);
+  align-items: center;
+  gap: 22px;
+  margin: 20px 0 26px;
+  padding: 18px;
+  border: 1px solid rgba(255,217,120,.35);
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(255,217,120,.10), rgba(186,115,255,.10));
+}
+.winner-inline-gif {
+  display: block;
+  width: 100%;
+  max-height: 290px;
+  object-fit: contain;
+  border-radius: 18px;
+}
+.winner-inline h3 { margin: 2px 0 6px; font-size: clamp(1.45rem, 4vw, 2rem); }
+#winnerInlineName { display: block; color: var(--gold); font-size: clamp(1.3rem, 4vw, 2rem); overflow-wrap: anywhere; }
+#winnerInlineScore { display: block; margin-top: 7px; color: var(--blue); font-weight: 900; }
+
+/* V11: falscher Anfangsbuchstabe wird sofort verworfen und sichtbar signalisiert. */
+.letter-rule-hint {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: .78rem;
+}
+.answer-input.wrong-letter {
+  border-color: var(--danger) !important;
+  animation: wrongLetterShake .22s linear 2;
+}
+@keyframes wrongLetterShake {
+  0%, 100% { transform: translateX(0); }
+  35% { transform: translateX(-5px); }
+  70% { transform: translateX(5px); }
+}
+
+@media (max-width: 640px) {
+  .winner-inline { grid-template-columns: 1fr; text-align: center; }
+  .winner-inline-gif { width: min(260px, 82%); margin: 0 auto; }
+}
