@@ -673,3 +673,57 @@ footer { width: min(1100px, calc(100% - 28px)); margin: 0 auto; padding: 0 0 34p
   .winner-inline { grid-template-columns: 1fr; text-align: center; }
   .winner-inline-gif { width: min(260px, 82%); margin: 0 auto; }
 }
+
+
+/* V12: Der geforderte Anfangsbuchstabe ist fest im Antwortfeld verankert. */
+.locked-answer-field {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(8,7,18,.55);
+  border-radius: 14px;
+  overflow: hidden;
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+.locked-answer-field:focus-within {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(103,211,255,.12);
+}
+.locked-letter-prefix {
+  flex: 0 0 auto;
+  min-width: 48px;
+  display: grid;
+  place-items: center;
+  padding: 0 14px;
+  border-right: 1px solid rgba(255,217,120,.24);
+  background: rgba(255,217,120,.10);
+  color: var(--gold);
+  font-size: 1.2rem;
+  font-weight: 950;
+  user-select: none;
+  pointer-events: none;
+}
+.locked-answer-field .answer-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.locked-answer-field .answer-input:focus {
+  border: 0;
+  box-shadow: none;
+}
+.locked-answer-field:has(.answer-input:disabled) {
+  opacity: .68;
+}
+.letter-rule-hint {
+  grid-column: 2;
+}
+@media (max-width: 640px) {
+  .letter-rule-hint { grid-column: 1; }
+  .locked-letter-prefix { min-width: 44px; padding-inline: 12px; }
+}

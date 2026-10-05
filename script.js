@@ -794,13 +794,17 @@ function renderGame() {
       row.className = "answer-row";
       const prefix = round.mode === "one-double" ? slot.variant : (round.mode === "three-sequential" ? slot.variant : `${visualIndex + 1}.`);
       const initialAnswer = sanitizeAnswerForLetter(myAnswers[slot.slotIndex] || "", slot.letter);
+      const initialSuffix = initialAnswer ? initialAnswer.slice(1) : "";
       row.innerHTML = `
         <label class="answer-label" for="answer-${slot.slotIndex}">
           <span class="question-letter">${escapeHtml(slot.letter)}</span>
           <span><span class="answer-number">${escapeHtml(prefix)}</span>${escapeHtml(category)}</span>
         </label>
-        <input class="answer-input" id="answer-${slot.slotIndex}" data-index="${slot.slotIndex}" data-letter="${escapeHtml(slot.letter)}" autocomplete="off" spellcheck="false" autocapitalize="sentences" placeholder="Muss mit ${escapeHtml(slot.letter)} beginnen …" value="${escapeHtml(initialAnswer)}">
-        <div class="letter-rule-hint" aria-live="polite">Nur Antworten mit <strong>${escapeHtml(slot.letter)}</strong> am Anfang sind erlaubt.</div>
+        <div class="locked-answer-field">
+          <span class="locked-letter-prefix" aria-hidden="true">${escapeHtml(slot.letter)}</span>
+          <input class="answer-input answer-suffix-input" id="answer-${slot.slotIndex}" data-index="${slot.slotIndex}" data-letter="${escapeHtml(slot.letter)}" autocomplete="off" spellcheck="false" autocapitalize="sentences" maxlength="119" aria-label="Antwort beginnt fest mit ${escapeHtml(slot.letter)}. Rest der Antwort eingeben" placeholder="Rest der Antwort …" value="${escapeHtml(initialSuffix)}">
+        </div>
+        <div class="letter-rule-hint"><strong>${escapeHtml(slot.letter)}</strong> ist fest vorgegeben und kann nicht geändert werden.</div>
       `;
       form.appendChild(row);
     });
@@ -809,26 +813,15 @@ function renderGame() {
       input.addEventListener("input", async event => {
         const field = event.currentTarget;
         const answerIndex = field.dataset.index;
-        const requiredLetter = field.dataset.letter || "";
-        const rawValue = normalizeAnswer(field.value);
+        const requiredLetter = String(field.dataset.letter || "").charAt(0).toLocaleUpperCase("de-DE");
+        const suffix = normalizeAnswer(field.value).slice(0, 119);
 
-        if (rawValue && !answerStartsWithLetter(rawValue, requiredLetter)) {
-          field.value = "";
-          field.classList.add("wrong-letter");
-          field.placeholder = `Nur Wörter mit ${requiredLetter} am Anfang`;
-          setTimeout(() => field.classList.remove("wrong-letter"), 450);
-          try {
-            await set(ref(db, `rooms/${state.roomCode}/rounds/${state.room.currentRoundNumber}/answers/${state.user.uid}/${answerIndex}`), null);
-          } catch (error) {
-            console.error("Ungültige Antwort konnte nicht entfernt werden", error);
-          }
-          return;
-        }
-
-        field.value = rawValue;
-        field.placeholder = `Muss mit ${requiredLetter} beginnen …`;
+        // Der geforderte Anfangsbuchstabe ist kein editierbarer Teil des Feldes.
+        // In Firebase wird trotzdem immer die vollständige Antwort gespeichert.
+        field.value = suffix;
+        const fullAnswer = suffix ? `${requiredLetter}${suffix}` : "";
         try {
-          await set(ref(db, `rooms/${state.roomCode}/rounds/${state.room.currentRoundNumber}/answers/${state.user.uid}/${answerIndex}`), rawValue || null);
+          await set(ref(db, `rooms/${state.roomCode}/rounds/${state.room.currentRoundNumber}/answers/${state.user.uid}/${answerIndex}`), fullAnswer || null);
         } catch (error) {
           console.error("Antwort konnte nicht gespeichert werden", error);
         }
