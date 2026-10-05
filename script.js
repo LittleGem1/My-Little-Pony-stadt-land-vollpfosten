@@ -13,6 +13,30 @@ import {
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
 
+
+const WINNER_GIFS = [
+  "winner-01.gif",
+  "winner-02.gif",
+  "winner-03.gif",
+  "winner-04.gif",
+  "winner-05.gif",
+  "winner-06.gif",
+  "winner-07.gif",
+  "winner-08.gif",
+  "winner-09.gif",
+  "winner-10.gif"
+];
+
+function winnerGifForGame(key) {
+  const text = String(key || "pony");
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return WINNER_GIFS[Math.abs(hash) % WINNER_GIFS.length];
+}
+
 const firebaseConfig = {
   apiKey: "AIzaSyAC_hzJVQNLC660Kcox7rY9UY7DLIVjpAw",
   authDomain: "pony-game-7e138.firebaseapp.com",
@@ -692,7 +716,6 @@ function renderGame() {
   $("levelInstruction").textContent = levelInstruction(round);
   const me = state.room.players?.[state.user.uid];
   $("playerDisplay").textContent = `${me?.name || state.playerName || "Pony"}, los geht's!`;
-  $("totalScoreDisplay").textContent = "🔒";
 
   const slots = answerSlots(round, false);
   if (round.mode === "four-different") {
@@ -1020,7 +1043,6 @@ function renderScoring() {
 
   const roundNumber = state.room.currentRoundNumber;
   $("scoreRoundLabel").textContent = `Auswertung · ${levelTitle(round)} · Raum ${state.roomCode}`;
-  $("roundScoreDisplay").textContent = "🔒";
   setScoreMessage("");
 
   const slots = answerSlots(round, true);
@@ -1030,8 +1052,7 @@ function renderScoring() {
   const allRatingsFinished = readyState.total > 0 && readyState.ready >= readyState.total;
   const container = $("scoreList");
   container.innerHTML = "";
-  // Eigene Punkte bleiben während des gesamten Spiels verborgen.
-  $("roundScoreDisplay").textContent = "🔒";
+  // Eigene Punkte werden vor dem Spielende nirgends angezeigt.
 
   slots.forEach((slot, visualIndex) => {
     const item = document.createElement("div");
@@ -1180,6 +1201,8 @@ function renderEnd() {
     $("winnerName").textContent = winners.map(player => player.name).join(" & ");
     $("winnerTitle").textContent = winners.length > 1 ? "Pony-Champions!" : "Pony-Champion!";
     $("winnerScore").textContent = `${formatScore(maxScore)} Punkte`;
+    const gifKey = `${state.roomCode || "room"}-${popupKey}-${maxScore}`;
+    $("winnerGif").src = `${winnerGifForGame(gifKey)}?v=${encodeURIComponent(popupKey)}`;
     $("winnerPopup").classList.remove("hidden");
   }
 }
@@ -1299,9 +1322,8 @@ function closeWinnerPopup(event) {
   $("winnerPopup").classList.add("hidden");
 }
 
-// Der komplette X-Button ist klick-/tippbar, nicht nur das Glyph selbst.
+// Der komplette Schließen-Button ist eine echte, große Klick-/Touch-Fläche.
 $("winnerCloseBtn").addEventListener("click", closeWinnerPopup);
-$("winnerCloseBtn").addEventListener("pointerup", closeWinnerPopup);
 $("winnerPopup").addEventListener("click", event => {
   if (event.target === $("winnerPopup")) closeWinnerPopup(event);
 });

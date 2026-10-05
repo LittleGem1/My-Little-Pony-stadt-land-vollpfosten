@@ -164,10 +164,7 @@
             <span id="timerStatLabel">Zeit</span>
             <strong id="timerDisplay">01:30</strong>
           </div>
-          <div class="stat-card">
-            <span>Deine Punkte · bis Spielende verborgen</span>
-            <strong id="totalScoreDisplay">🔒</strong>
-          </div>
+
         </div>
       </div>
 
@@ -190,7 +187,7 @@
           <p class="kicker" id="scoreRoundLabel">Auswertung · Level 1</p>
           <h2>Antworten vergleichen</h2>
         </div>
-        <div class="score-total"><span>Deine Punkte · sichtbar erst am Spielende</span><strong id="roundScoreDisplay">🔒</strong></div>
+
       </div>
       <p class="helper">Vergleicht eure Antworten gemeinsam. Du bewertest <strong>nur die Antworten der anderen Spieler</strong> – niemals deine eigene. 20 = einzigartig, 10 = gültig aber doppelt, 5 = diskutabel, 0 = nope. Bei mehr als zwei Spielern zählt pro Antwort der Durchschnitt der erhaltenen Bewertungen.</p>
       <p class="status-message score-message" id="scoreMessage" aria-live="polite"></p>
@@ -233,8 +230,8 @@
 
     <div class="winner-popup hidden" id="winnerPopup" role="dialog" aria-modal="true" aria-labelledby="winnerTitle">
       <div class="winner-card">
-        <button class="winner-close" id="winnerCloseBtn" type="button" aria-label="Gewinner-Fenster schließen">✕</button>
-        <div class="winner-crown" aria-hidden="true">👑</div>
+        <button class="winner-close" id="winnerCloseBtn" type="button" aria-label="Gewinner-Fenster schließen"><span aria-hidden="true">✕</span></button>
+        <img class="winner-gif" id="winnerGif" src="winner-01.gif" alt="Animierte Pony-Siegerfeier">
         <p class="kicker">Gewinner</p>
         <h2 id="winnerTitle">Pony-Champion!</h2>
         <p id="winnerName">Little Gem</p>
