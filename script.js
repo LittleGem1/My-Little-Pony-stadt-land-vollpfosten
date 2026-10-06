@@ -231,32 +231,26 @@ const FAMILY_CATEGORIES = [
   "Etwas Gefährliches"
 ];
 
+// Feste Decks gehören zur Website, nicht zur Upload-Bibliothek.
+// Sie bleiben damit auch ohne Browser-Speicher und bei jedem neuen Spiel verfügbar.
 const CUSTOM_DECKS_KEY = "slv-custom-decks-v1";
 const PREFERRED_DECK_KEY = "slv-preferred-deck-v1";
-
-// Diese beiden Decks sind fester Bestandteil der Webseite: Sie werden weder
-// aus Firebase noch aus dem Browser geladen und können dadurch nicht verschwinden.
 const BUILTIN_DECKS = [
   { id: "mlp", name: "MLP Deck", categories: MLP_CATEGORIES },
   { id: "family", name: "Familien Deck", categories: FAMILY_CATEGORIES }
 ];
 
-function normalizedDeckName(name) {
-  return String(name || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("de-DE");
+function deckNameKey(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("de-DE");
 }
-
-function isBuiltinDeck(deck) {
-  return BUILTIN_DECKS.some(preset => deck?.id === preset.id || normalizedDeckName(deck?.name) === normalizedDeckName(preset.name));
-}
-
-function lastChosenDeckId() {
+function rememberedDeckId() {
   try { return localStorage.getItem(PREFERRED_DECK_KEY) || "mlp"; }
   catch { return "mlp"; }
 }
-
-function rememberChosenDeck(id) {
-  try { if (id) localStorage.setItem(PREFERRED_DECK_KEY, String(id)); }
-  catch (error) { console.warn("Deckauswahl konnte nicht gespeichert werden", error); }
+function rememberDeckId(id) {
+  if (!allDecks().some(deck => deck.id === id)) return;
+  try { localStorage.setItem(PREFERRED_DECK_KEY, id); }
+  catch (error) { console.warn("Deck-Auswahl konnte nicht lokal gespeichert werden", error); }
 }
 
 function normalizeCategoryList(raw) {
@@ -299,16 +293,21 @@ function saveCustomDecks() {
   catch (error) { console.warn("Eigene Decks konnten nicht gespeichert werden", error); }
 }
 function allDecks() {
-  // Bereits früher hochgeladene Kopien von „MLP Deck“/„Familien Deck“
-  // nicht nochmal anzeigen. Es bleiben genau zwei eingebaute Originale.
-  const otherDecksByName = new Map();
-  [...remoteDecks, ...customDecks].forEach(deck => {
-    if (!deck?.id || isBuiltinDeck(deck)) return;
-    const categories = normalizeCategoryList(deck.categories);
-    if (categories.length < 10) return;
-    otherDecksByName.set(normalizedDeckName(deck.name), { ...deck, categories });
-  });
-  return [...BUILTIN_DECKS, ...otherDecksByName.values()];
+  // Beide festen Decks haben immer Vorrang. Bereits hochgeladene Kopien
+  // (z. B. ein früher importiertes "Familien Deck") werden nur ausgeblendet,
+  // niemals aus Firebase gelöscht. Eigene Decks bleiben erhalten.
+  const seenNames = new Set(BUILTIN_DECKS.map(deck => deckNameKey(deck.name)));
+  const seenIds = new Set(BUILTIN_DECKS.map(deck => deck.id));
+  const additional = [];
+  for (const deck of [...customDecks, ...remoteDecks]) {
+    if (!deck?.id || normalizeCategoryList(deck.categories).length < 10) continue;
+    const key = deckNameKey(deck.name);
+    if (!key || seenIds.has(deck.id) || seenNames.has(key)) continue;
+    seenNames.add(key);
+    seenIds.add(deck.id);
+    additional.push(deck);
+  }
+  return [...BUILTIN_DECKS, ...additional];
 }
 function subscribeDeckLibrary() {
   if (deckLibraryUnsubscribe) deckLibraryUnsubscribe();
@@ -317,15 +316,14 @@ function subscribeDeckLibrary() {
     remoteDecks = Object.entries(raw).map(([id, deck]) => ({
       id,
       name: String(deck?.name || "Eigenes Deck").trim().slice(0, 50),
-      categories: normalizeCategoryList(deck?.categories)
+      categories: normalizeCategoryList(deck?.categories),
+      createdBy: String(deck?.createdBy || "")
     })).filter(deck => deck.categories.length >= 10);
-    // Auch wenn neue Firebase-Decks ankommen, nicht das gerade gewählte
-    // oder gespeicherte Standard-Deck ungefragt zurücksetzen.
-    const selectedSetup = document.getElementById("deckSelect")?.value || lastChosenDeckId();
+    const selectedSetup = document.getElementById("deckSelect")?.value || "mlp";
     refreshSetupDeckUI();
-    const select = document.getElementById("deckSelect");
-    if (select && allDecks().some(deck => deck.id === selectedSetup)) {
-      select.value = selectedSetup;
+    renderUploadedDeckManager();
+    if (document.getElementById("deckSelect") && allDecks().some(deck => deck.id === selectedSetup)) {
+      document.getElementById("deckSelect").value = selectedSetup;
       refreshSetupDeckUI();
     }
   }, error => console.warn("Deck-Bibliothek konnte nicht geladen werden", error));
@@ -349,12 +347,17 @@ function activeDeckName(room = state?.room) {
 }
 function populateDeckSelect(select, selectedId = "mlp", roomSettings = null) {
   if (!select) return;
-  const options = allDecks().map(deck => ({ id: deck.id, name: deck.name }));
-  if (roomSettings?.deckId && !options.some(option => option.id === roomSettings.deckId)) {
-    options.push({ id: String(roomSettings.deckId), name: String(roomSettings.deckName || "Deck des Hosts") });
+  const builtinIds = new Set(BUILTIN_DECKS.map(deck => deck.id));
+  const extras = allDecks().filter(deck => !builtinIds.has(deck.id)).map(deck => ({ id: deck.id, name: deck.name }));
+  if (roomSettings?.deckId && !builtinIds.has(roomSettings.deckId) && !extras.some(deck => deck.id === roomSettings.deckId)) {
+    extras.push({ id: String(roomSettings.deckId), name: String(roomSettings.deckName || "Deck des Hosts") });
   }
-  select.innerHTML = options.map(option => `<option value="${escapeHtml(option.id)}">${escapeHtml(option.name)}</option>`).join("");
-  select.value = options.some(option => option.id === selectedId) ? selectedId : options[0]?.id || "mlp";
+  const fixedHtml = BUILTIN_DECKS.map(deck => `<option value="${escapeHtml(deck.id)}">${escapeHtml(deck.name)} · ${deck.categories.length} Fragen</option>`).join("");
+  const customHtml = extras.map(deck => `<option value="${escapeHtml(deck.id)}">${escapeHtml(deck.name)}</option>`).join("");
+  select.innerHTML = `<optgroup label="Dauerhaft enthalten">${fixedHtml}</optgroup>` +
+    (extras.length ? `<optgroup label="Weitere Decks">${customHtml}</optgroup>` : "");
+  const availableIds = new Set([...BUILTIN_DECKS.map(deck => deck.id), ...extras.map(deck => deck.id)]);
+  select.value = availableIds.has(selectedId) ? selectedId : "mlp";
 }
 function updateTermOptions(select, categoryCount, preferred = 10) {
   if (!select) return 10;
@@ -370,7 +373,7 @@ function updateTermOptions(select, categoryCount, preferred = 10) {
 function refreshSetupDeckUI(preferredTerms = null) {
   const select = document.getElementById("deckSelect");
   if (!select) return;
-  const previous = select.value || lastChosenDeckId();
+  const previous = select.value || rememberedDeckId();
   populateDeckSelect(select, previous);
   const deck = getDeckById(select.value);
   const termSelect = document.getElementById("categoryAmount");
@@ -396,9 +399,6 @@ async function parseDeckFile(file) {
     categories = normalizeCategoryList(text.split(/\r?\n/));
   }
   if (categories.length < 10) throw new Error("Ein Deck braucht mindestens 10 verschiedene Kategorien.");
-  if (isBuiltinDeck({ name })) {
-    throw new Error(`„${name}“ ist schon dauerhaft eingebaut. Bitte wähle es direkt im Deck-Menü aus – kein Hochladen nötig.`);
-  }
   const slug = name.toLocaleLowerCase("de-DE").replace(/[^a-z0-9äöüß]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "deck";
   return { id: `custom-${Date.now().toString(36)}-${slug}`, name, categories };
 }
@@ -409,7 +409,22 @@ async function importDeckFromInput(input, target = "setup") {
   try {
     if (status) { status.textContent = "Deck wird geladen …"; status.classList.remove("error"); }
     const deck = await parseDeckFile(file);
-    customDecks = [...customDecks.filter(existing => normalizedDeckName(existing.name) !== normalizedDeckName(deck.name)), deck];
+    const builtinMatch = BUILTIN_DECKS.find(builtin => deckNameKey(builtin.name) === deckNameKey(deck.name));
+    if (builtinMatch) {
+      if (target === "lobby" && state.isHost) {
+        populateDeckSelect(document.getElementById("lobbyDeckSelect"), builtinMatch.id, state.room?.settings || null);
+        updateTermOptions(document.getElementById("lobbyCategoryAmount"), builtinMatch.categories.length, 10);
+        rememberDeckId(builtinMatch.id);
+        await updateLobbySettings();
+      } else {
+        document.getElementById("deckSelect").value = builtinMatch.id;
+        rememberDeckId(builtinMatch.id);
+        refreshSetupDeckUI(10);
+      }
+      if (status) status.textContent = `${builtinMatch.name} ist bereits fest eingebaut. Kein Upload erforderlich!`;
+      return;
+    }
+    customDecks = [...customDecks.filter(existing => deckNameKey(existing.name) !== deckNameKey(deck.name)), deck];
     saveCustomDecks();
     if (state.user) {
       try {
@@ -433,13 +448,85 @@ async function importDeckFromInput(input, target = "setup") {
       document.getElementById("deckSelect").value = deck.id;
       refreshSetupDeckUI(10);
     }
-    rememberChosenDeck(deck.id);
+    rememberDeckId(deck.id);
+    renderUploadedDeckManager();
     if (status) status.textContent = `${deck.name} geladen · ${deck.categories.length} Kategorien`;
   } catch (error) {
     console.error(error);
     if (status) { status.textContent = error.message || "Deck konnte nicht geladen werden."; status.classList.add("error"); }
   } finally {
     input.value = "";
+  }
+}
+
+function uploadedDeckEntriesForCurrentUser() {
+  const byId = new Map();
+  for (const deck of customDecks) {
+    if (!deck?.id) continue;
+    byId.set(deck.id, { ...deck, isLocal: true, canDelete: true });
+  }
+  for (const deck of remoteDecks) {
+    if (!deck?.id) continue;
+    const existing = byId.get(deck.id) || {};
+    const owned = Boolean(state?.user?.uid && deck.createdBy === state.user.uid);
+    byId.set(deck.id, { ...existing, ...deck, isRemote: true, canDelete: Boolean(existing.canDelete || owned) });
+  }
+  return [...byId.values()]
+    .filter(deck => deck.canDelete)
+    .sort((a,b) => String(a.name).localeCompare(String(b.name), "de"));
+}
+
+function renderUploadedDeckManager() {
+  const list = document.getElementById("uploadedDeckList");
+  if (!list) return;
+  const entries = uploadedDeckEntriesForCurrentUser();
+  if (!entries.length) {
+    list.innerHTML = '<div class="uploaded-deck-empty">Keine eigenen Uploads vorhanden. Deine beiden festen Decks bleiben trotzdem immer verfügbar.</div>';
+    return;
+  }
+  list.innerHTML = entries.map(deck => {
+    const duplicateBuiltin = BUILTIN_DECKS.some(builtin => deckNameKey(builtin.name) === deckNameKey(deck.name));
+    const note = duplicateBuiltin ? ' · Kopie eines festen Decks' : '';
+    return `<div class="uploaded-deck-row">
+      <div class="uploaded-deck-info">
+        <strong>${escapeHtml(deck.name || "Eigenes Deck")}</strong>
+        <small>${normalizeCategoryList(deck.categories).length} Kategorien${note}</small>
+      </div>
+      <button class="deck-delete-btn" type="button" data-delete-deck="${escapeHtml(deck.id)}">Deck löschen</button>
+    </div>`;
+  }).join("");
+}
+
+async function deleteUploadedDeck(deckId) {
+  if (!deckId || BUILTIN_DECKS.some(deck => deck.id === deckId)) return;
+  const deck = [...customDecks, ...remoteDecks].find(item => item?.id === deckId);
+  if (!deck) return;
+  const confirmed = window.confirm(`„${deck.name || "Dieses Deck"}“ wirklich löschen? Die fest eingebauten Decks bleiben erhalten.`);
+  if (!confirmed) return;
+
+  customDecks = customDecks.filter(item => item.id !== deckId);
+  saveCustomDecks();
+  const remote = remoteDecks.find(item => item.id === deckId);
+  if (remote && state.user && (!remote.createdBy || remote.createdBy === state.user.uid)) {
+    try { await remove(ref(db, `decks/${deckId}`)); }
+    catch (error) {
+      console.warn("Deck konnte nicht aus Firebase gelöscht werden", error);
+      const status = document.getElementById("deckUploadStatus");
+      if (status) { status.textContent = "Lokale Kopie gelöscht, Firebase-Kopie konnte nicht entfernt werden."; status.classList.add("error"); }
+    }
+  }
+  remoteDecks = remoteDecks.filter(item => item.id !== deckId);
+
+  if (rememberedDeckId() === deckId) rememberDeckId("mlp");
+  const setupSelect = document.getElementById("deckSelect");
+  if (setupSelect?.value === deckId) setupSelect.value = "mlp";
+  refreshSetupDeckUI();
+  renderUploadedDeckManager();
+
+  if (state.isHost && state.room && state.room.settings?.deckId === deckId) {
+    populateDeckSelect(document.getElementById("lobbyDeckSelect"), "mlp", state.room.settings);
+    document.getElementById("lobbyDeckSelect").value = "mlp";
+    await updateLobbySettings();
   }
 }
 
@@ -1160,7 +1247,6 @@ async function updateLobbySettings() {
   if (!deck && selectedId === state.room?.settings?.deckId) deck = { id: selectedId, name: activeDeckName(), categories: activeCategories() };
   deck = deck || BUILTIN_DECKS[0];
   const previousDeckId = state.room?.settings?.deckId || "mlp";
-  rememberChosenDeck(deck.id);
   const totalTerms = updateTermOptions($("lobbyCategoryAmount"), deck.categories.length, Number($("lobbyCategoryAmount").value || 10));
   const updates = {
     "settings/totalTerms": totalTerms,
@@ -1172,6 +1258,7 @@ async function updateLobbySettings() {
   };
   if (deck.id !== previousDeckId) updates.categoryHistory = null;
   await update(ref(db, `rooms/${state.roomCode}`), updates);
+  rememberDeckId(deck.id);
 }
 
 function makeRound(nextNumber) {
@@ -1701,7 +1788,7 @@ document.addEventListener("keydown", event => {
 
 $("answersForm").addEventListener("submit", event => event.preventDefault());
 $("deckSelect").addEventListener("change", () => {
-  rememberChosenDeck($("deckSelect").value);
+  rememberDeckId($("deckSelect").value);
   refreshSetupDeckUI(10);
 });
 $("uploadDeckBtn").addEventListener("click", () => $("deckFileInput").click());
@@ -1714,6 +1801,15 @@ $("lobbyDeckSelect").addEventListener("change", async () => {
 });
 $("lobbyUploadDeckBtn").addEventListener("click", () => $("lobbyDeckFileInput").click());
 $("lobbyDeckFileInput").addEventListener("change", () => importDeckFromInput($("lobbyDeckFileInput"), "lobby"));
+const uploadedDeckListEl = document.getElementById("uploadedDeckList");
+if (uploadedDeckListEl) {
+  uploadedDeckListEl.addEventListener("click", event => {
+    const button = event.target.closest("[data-delete-deck]");
+    if (!button) return;
+    deleteUploadedDeck(button.dataset.deleteDeck);
+  });
+}
+renderUploadedDeckManager();
 $("lobbyCategoryAmount").addEventListener("change", updateLobbySettings);
 
 $("hostStartBtn").addEventListener("click", startNextRound);
@@ -1788,6 +1884,7 @@ onAuthStateChanged(auth, async user => {
   if (user) {
     state.user = user;
     await loadProfileForUser();
+    renderUploadedDeckManager();
     subscribeDeckLibrary();
     setConnection("Firebase verbunden · Multiplayer bereit", "online");
     $("createRoomBtn").disabled = false;

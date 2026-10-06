@@ -762,3 +762,65 @@ footer { width: min(1100px, calc(100% - 28px)); margin: 0 auto; padding: 0 0 34p
   .deck-manager { grid-template-columns: 1fr; }
   .deck-manager .btn { width: 100%; }
 }
+
+
+/* V17: gut lesbare Deck-Auswahl + löschbare eigene Decks */
+.field select, #deckSelect, #lobbyDeckSelect, #categoryAmount, #lobbyCategoryAmount {
+  background: #211a2e !important;
+  color: #ffffff !important;
+  color-scheme: dark;
+  border-color: rgba(255,255,255,.18);
+  font-weight: 800;
+}
+.field select option, .field select optgroup,
+#deckSelect option, #deckSelect optgroup,
+#lobbyDeckSelect option, #lobbyDeckSelect optgroup,
+#categoryAmount option, #lobbyCategoryAmount option {
+  background: #211a2e !important;
+  color: #ffffff !important;
+}
+.field select:disabled, #lobbyDeckSelect:disabled {
+  color: #ddd5ef !important;
+  -webkit-text-fill-color: #ddd5ef;
+}
+.uploaded-decks-card {
+  margin: 0 0 18px;
+  padding: 15px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255,255,255,.035);
+}
+.uploaded-decks-head { display: flex; gap: 12px; justify-content: space-between; align-items: center; }
+.uploaded-decks-head > div { display: grid; gap: 4px; }
+.uploaded-decks-head strong { color: var(--text); }
+.uploaded-decks-head span { color: var(--muted); font-size: .86rem; line-height: 1.4; }
+.uploaded-deck-list { display: grid; gap: 9px; margin-top: 12px; }
+.uploaded-deck-empty { color: var(--muted); font-size: .9rem; padding: 6px 0 2px; }
+.uploaded-deck-row {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 11px 12px;
+  border-radius: 13px;
+  border: 1px solid rgba(255,255,255,.09);
+  background: rgba(255,255,255,.035);
+}
+.uploaded-deck-info { min-width: 0; display: grid; gap: 2px; }
+.uploaded-deck-info strong { overflow-wrap: anywhere; color: var(--text); }
+.uploaded-deck-info small { color: var(--muted); }
+.deck-delete-btn {
+  border: 1px solid rgba(255,113,138,.35);
+  background: rgba(255,92,122,.11);
+  color: #ffb7c5;
+  border-radius: 11px;
+  min-height: 42px;
+  padding: 9px 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.deck-delete-btn:hover { background: rgba(255,92,122,.2); }
+@media (max-width: 560px) {
+  .uploaded-deck-row { grid-template-columns: 1fr; }
+  .deck-delete-btn { width: 100%; }
+}

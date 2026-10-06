@@ -41,7 +41,7 @@
         <label class="field">
           <span>Deck auswählen <small>(für neuen Raum)</small></span>
           <select id="deckSelect" aria-label="Deck auswählen"></select>
-          <small>💜 MLP Deck und Familien Deck sind dauerhaft enthalten. Einmal wählen, immer wieder spielen!</small>
+          <small class="helper compact">MLP Deck und Familien Deck sind fest eingebaut. Einmal auswählen, jederzeit wieder spielen – ohne Hochladen.</small>
         </label>
         <label class="field">
           <span>Begriffe im Spiel <small>(für neuen Raum)</small></span>
@@ -66,12 +66,22 @@
 
       <div class="deck-manager">
         <div>
-          <strong>Weitere Decks hinzufügen (optional)</strong>
-          <span>MLP und Familien Deck musst du nicht hochladen. Für neue Decks: TXT: eine Kategorie pro Zeile · JSON: {"name":"Mein Deck","categories":["Frage 1","Frage 2"]}</span>
+          <strong>Optional: weiteres eigenes Deck hinzufügen</strong>
+          <span>TXT: eine Kategorie pro Zeile · JSON: {"name":"Mein Deck","categories":["Frage 1","Frage 2"]}</span>
         </div>
         <input id="deckFileInput" class="hidden-file-input" type="file" accept=".txt,.json,text/plain,application/json">
         <button class="btn btn-secondary" id="uploadDeckBtn" type="button">Deck hochladen</button>
         <span class="deck-upload-status" id="deckUploadStatus" aria-live="polite"></span>
+      </div>
+
+      <div class="uploaded-decks-card">
+        <div class="uploaded-decks-head">
+          <div>
+            <strong>Eigene hochgeladene Decks verwalten</strong>
+            <span>MLP Deck und Familien Deck sind fest eingebaut und können nicht gelöscht werden.</span>
+          </div>
+        </div>
+        <div id="uploadedDeckList" class="uploaded-deck-list" aria-live="polite"></div>
       </div>
 
       <div class="level-preview">
@@ -119,8 +129,9 @@
         <div class="settings-card">
           <h3>Spieleinstellungen</h3>
           <label class="field">
-            <span>Deck</span>
+            <span>Deck für alle Spieler</span>
             <select id="lobbyDeckSelect" aria-label="Deck im Raum"></select>
+            <small class="helper compact">Beide Standarddecks sind dauerhaft verfügbar. Nur der Host wählt.</small>
           </label>
           <div class="lobby-deck-upload host-only hidden">
             <input id="lobbyDeckFileInput" class="hidden-file-input" type="file" accept=".txt,.json,text/plain,application/json">
