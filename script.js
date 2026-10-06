@@ -359,6 +359,55 @@ function populateDeckSelect(select, selectedId = "mlp", roomSettings = null) {
   const availableIds = new Set([...BUILTIN_DECKS.map(deck => deck.id), ...extras.map(deck => deck.id)]);
   select.value = availableIds.has(selectedId) ? selectedId : "mlp";
 }
+
+function deckPickerEntries(roomSettings = null) {
+  const entries = allDecks().map(deck => ({
+    id: deck.id,
+    name: deck.name,
+    categories: normalizeCategoryList(deck.categories),
+    builtin: BUILTIN_DECKS.some(item => item.id === deck.id)
+  }));
+  if (roomSettings?.deckId && !entries.some(deck => deck.id === roomSettings.deckId)) {
+    entries.push({
+      id: String(roomSettings.deckId),
+      name: String(roomSettings.deckName || "Deck des Hosts"),
+      categories: normalizeCategoryList(roomSettings.deckCategories),
+      builtin: false
+    });
+  }
+  return entries;
+}
+
+function renderDeckChoiceCards(containerId, select, disabled = false, roomSettings = null) {
+  const container = document.getElementById(containerId);
+  if (!container || !select) return;
+  const selectedId = select.value || "mlp";
+  const entries = deckPickerEntries(roomSettings);
+  container.innerHTML = entries.map(deck => {
+    const selected = deck.id === selectedId;
+    const count = deck.categories.length || (deck.id === roomSettings?.deckId ? normalizeCategoryList(roomSettings?.deckCategories).length : 0);
+    const typeLabel = deck.builtin ? "Fest eingebaut" : "Eigenes Deck";
+    return `<button class="deck-choice-card ${selected ? "selected" : ""}" type="button" role="radio" aria-checked="${selected ? "true" : "false"}" data-deck-choice="${escapeHtml(deck.id)}" ${disabled ? "disabled" : ""}>
+      <span class="deck-choice-name">${escapeHtml(deck.name)}</span>
+      <span class="deck-choice-meta">${count ? `${count} Kategorien · ` : ""}${typeLabel}</span>
+      <span class="deck-choice-check" aria-hidden="true">${selected ? "✓ ausgewählt" : "auswählen"}</span>
+    </button>`;
+  }).join("");
+}
+
+function wireDeckChoiceCards(containerId, selectId) {
+  const container = document.getElementById(containerId);
+  const select = document.getElementById(selectId);
+  if (!container || !select) return;
+  container.addEventListener("click", event => {
+    const button = event.target.closest("[data-deck-choice]");
+    if (!button || button.disabled) return;
+    const deckId = button.dataset.deckChoice;
+    if (!deckId || select.value === deckId) return;
+    select.value = deckId;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
 function updateTermOptions(select, categoryCount, preferred = 10) {
   if (!select) return 10;
   const maxTerms = Math.max(10, Math.floor(Number(categoryCount || 0) / 10) * 10);
@@ -376,6 +425,7 @@ function refreshSetupDeckUI(preferredTerms = null) {
   const previous = select.value || rememberedDeckId();
   populateDeckSelect(select, previous);
   const deck = getDeckById(select.value);
+  renderDeckChoiceCards("deckChoiceSetup", select, false, null);
   const termSelect = document.getElementById("categoryAmount");
   updateTermOptions(termSelect, deck.categories.length, preferredTerms ?? Number(termSelect?.value || 10));
   const badge = document.getElementById("categoryCountBadge");
@@ -1094,6 +1144,7 @@ function renderLobby() {
   const deckCategories = activeCategories();
   populateDeckSelect($("lobbyDeckSelect"), settings.deckId || "mlp", settings);
   $("lobbyDeckSelect").disabled = !state.isHost;
+  renderDeckChoiceCards("deckChoiceLobby", $("lobbyDeckSelect"), !state.isHost, settings);
   updateTermOptions($("lobbyCategoryAmount"), deckCategories.length, Number(settings.totalTerms || settings.categoryAmount || 10));
   $("lobbyNoTimePressure").checked = noTimePressure;
   $("lobbyNoTimePressure").disabled = !state.isHost;
@@ -1796,11 +1847,15 @@ $("deckFileInput").addEventListener("change", () => importDeckFromInput($("deckF
 $("lobbyDeckSelect").addEventListener("change", async () => {
   if (!state.isHost) return;
   const deck = getDeckById($("lobbyDeckSelect").value);
+  renderDeckChoiceCards("deckChoiceLobby", $("lobbyDeckSelect"), false, state.room?.settings || null);
   updateTermOptions($("lobbyCategoryAmount"), deck.categories.length, 10);
   await updateLobbySettings();
 });
 $("lobbyUploadDeckBtn").addEventListener("click", () => $("lobbyDeckFileInput").click());
 $("lobbyDeckFileInput").addEventListener("change", () => importDeckFromInput($("lobbyDeckFileInput"), "lobby"));
+wireDeckChoiceCards("deckChoiceSetup", "deckSelect");
+wireDeckChoiceCards("deckChoiceLobby", "lobbyDeckSelect");
+
 const uploadedDeckListEl = document.getElementById("uploadedDeckList");
 if (uploadedDeckListEl) {
   uploadedDeckListEl.addEventListener("click", event => {

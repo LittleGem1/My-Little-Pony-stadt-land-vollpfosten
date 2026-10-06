@@ -38,11 +38,12 @@
           <span>Dein Spielername</span>
           <input id="playerName" type="text" maxlength="24" placeholder="z. B. Little Gem" autocomplete="nickname">
         </label>
-        <label class="field">
+        <div class="field">
           <span>Deck auswählen <small>(für neuen Raum)</small></span>
-          <select id="deckSelect" aria-label="Deck auswählen"></select>
-          <small class="helper compact">MLP Deck und Familien Deck sind fest eingebaut. Einmal auswählen, jederzeit wieder spielen – ohne Hochladen.</small>
-        </label>
+          <select id="deckSelect" class="deck-native-select-hidden" aria-hidden="true" tabindex="-1"></select>
+          <div id="deckChoiceSetup" class="deck-choice-grid" role="radiogroup" aria-label="Deck auswählen"></div>
+          <small class="helper compact">Klick einfach auf ein Deck. Das ausgewählte Deck leuchtet und wird in Regenbogen-Schrift markiert.</small>
+        </div>
         <label class="field">
           <span>Begriffe im Spiel <small>(für neuen Raum)</small></span>
           <select id="categoryAmount"><option value="10">10 Begriffe</option></select>
@@ -128,11 +129,12 @@
         </div>
         <div class="settings-card">
           <h3>Spieleinstellungen</h3>
-          <label class="field">
+          <div class="field">
             <span>Deck für alle Spieler</span>
-            <select id="lobbyDeckSelect" aria-label="Deck im Raum"></select>
-            <small class="helper compact">Beide Standarddecks sind dauerhaft verfügbar. Nur der Host wählt.</small>
-          </label>
+            <select id="lobbyDeckSelect" class="deck-native-select-hidden" aria-hidden="true" tabindex="-1"></select>
+            <div id="deckChoiceLobby" class="deck-choice-grid lobby-deck-choice" role="radiogroup" aria-label="Deck im Raum"></div>
+            <small class="helper compact">Beide Standarddecks sind dauerhaft verfügbar. Nur der Host kann wechseln.</small>
+          </div>
           <div class="lobby-deck-upload host-only hidden">
             <input id="lobbyDeckFileInput" class="hidden-file-input" type="file" accept=".txt,.json,text/plain,application/json">
             <button class="btn btn-small btn-secondary" id="lobbyUploadDeckBtn" type="button">Neues Deck hochladen</button>
