@@ -727,3 +727,38 @@ footer { width: min(1100px, calc(100% - 28px)); margin: 0 auto; padding: 0 0 34p
   .letter-rule-hint { grid-column: 1; }
   .locked-letter-prefix { min-width: 44px; padding-inline: 12px; }
 }
+
+/* V15: Deck-Auswahl und eigene Decks */
+.deck-manager {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 16px;
+  align-items: center;
+  margin: 18px 0;
+  padding: 15px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255,255,255,.035);
+}
+.deck-manager > div { display: grid; gap: 4px; min-width: 0; }
+.deck-manager strong { color: var(--text); }
+.deck-manager span { color: var(--muted); font-size: .86rem; line-height: 1.4; overflow-wrap: anywhere; }
+.hidden-file-input { display: none !important; }
+.deck-upload-status {
+  grid-column: 1 / -1;
+  min-height: 1.2em;
+  color: var(--success);
+  font-size: .82rem;
+  font-weight: 750;
+}
+.deck-upload-status.error { color: var(--danger); }
+.lobby-deck-upload {
+  display: grid;
+  gap: 7px;
+  margin-top: -3px;
+}
+.lobby-deck-upload .deck-upload-status { grid-column: auto; }
+@media (max-width: 640px) {
+  .deck-manager { grid-template-columns: 1fr; }
+  .deck-manager .btn { width: 100%; }
+}

@@ -4,15 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#6f4cff">
-  <title>Stadt Land Vollpfosten – MLP Multiplayer Levels</title>
+  <title>Stadt Land Vollpfosten – Multiplayer Decks</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <main class="app-shell">
     <header class="hero">
-      <p class="eyebrow">FAN GAME · MLP ONLY · MULTIPLAYER</p>
-      <h1>Stadt Land Vollpfosten<br><span>MLP Edition</span></h1>
-      <p class="hero-copy">Gemeinsame Räume, echte Level-Regeln, synchroner Timer – und maximaler Pony-Chaosfaktor.</p>
+      <p class="eyebrow">MULTIPLAYER · DECKS · CHAOS</p>
+      <h1>Stadt Land Vollpfosten<br><span>Multiplayer</span></h1>
+      <p class="hero-copy">Wähle ein Deck, spiele gemeinsam im Raum und erweitere das Spiel jederzeit mit eigenen Kategorien.</p>
       <div class="connection-pill" id="connectionStatus">Verbinde mit Firebase …</div>
     </header>
 
@@ -22,7 +22,7 @@
           <p class="kicker">Multiplayer</p>
           <h2>Raum erstellen oder beitreten</h2>
         </div>
-        <div class="badge" id="categoryCountBadge">77 Kategorien</div>
+        <div class="badge" id="categoryCountBadge">MLP Deck · 77 Kategorien</div>
       </div>
 
       <div class="profile-summary">
@@ -39,16 +39,12 @@
           <input id="playerName" type="text" maxlength="24" placeholder="z. B. Little Gem" autocomplete="nickname">
         </label>
         <label class="field">
+          <span>Deck auswählen <small>(für neuen Raum)</small></span>
+          <select id="deckSelect" aria-label="Deck auswählen"></select>
+        </label>
+        <label class="field">
           <span>Begriffe im Spiel <small>(für neuen Raum)</small></span>
-          <select id="categoryAmount">
-            <option value="10" selected>10 Begriffe</option>
-            <option value="20">20 Begriffe</option>
-            <option value="30">30 Begriffe</option>
-            <option value="40">40 Begriffe</option>
-            <option value="50">50 Begriffe</option>
-            <option value="60">60 Begriffe</option>
-            <option value="70">70 Begriffe</option>
-          </select>
+          <select id="categoryAmount"><option value="10">10 Begriffe</option></select>
         </label>
         <div class="field">
           <span>Rundenzeit <small>(gilt für jede Runde)</small></span>
@@ -65,6 +61,16 @@
             <span class="toggle-copy"><strong>Ohne Zeitdruck</strong><small>Statt des Timers: Jeder darf in Ruhe ausfüllen. Weiter geht es erst, wenn alle fertig sind.</small></span>
           </label>
         </div>
+      </div>
+
+      <div class="deck-manager">
+        <div>
+          <strong>Eigenes Deck hinzufügen</strong>
+          <span>TXT: eine Kategorie pro Zeile · JSON: {"name":"Mein Deck","categories":["Frage 1","Frage 2"]}</span>
+        </div>
+        <input id="deckFileInput" class="hidden-file-input" type="file" accept=".txt,.json,text/plain,application/json">
+        <button class="btn btn-secondary" id="uploadDeckBtn" type="button">Deck hochladen</button>
+        <span class="deck-upload-status" id="deckUploadStatus" aria-live="polite"></span>
       </div>
 
       <div class="level-preview">
@@ -112,16 +118,17 @@
         <div class="settings-card">
           <h3>Spieleinstellungen</h3>
           <label class="field">
+            <span>Deck</span>
+            <select id="lobbyDeckSelect" aria-label="Deck im Raum"></select>
+          </label>
+          <div class="lobby-deck-upload host-only hidden">
+            <input id="lobbyDeckFileInput" class="hidden-file-input" type="file" accept=".txt,.json,text/plain,application/json">
+            <button class="btn btn-small btn-secondary" id="lobbyUploadDeckBtn" type="button">Neues Deck hochladen</button>
+            <span class="deck-upload-status" id="lobbyDeckUploadStatus" aria-live="polite"></span>
+          </div>
+          <label class="field">
             <span>Begriffe im Spiel</span>
-            <select id="lobbyCategoryAmount">
-              <option value="10">10 Begriffe</option>
-              <option value="20">20 Begriffe</option>
-              <option value="30">30 Begriffe</option>
-              <option value="40">40 Begriffe</option>
-              <option value="50">50 Begriffe</option>
-              <option value="60">60 Begriffe</option>
-              <option value="70">70 Begriffe</option>
-            </select>
+            <select id="lobbyCategoryAmount"><option value="10">10 Begriffe</option></select>
           </label>
           <div class="field">
             <span>Rundenzeit <small>(gilt immer wieder neu)</small></span>
@@ -205,12 +212,12 @@
 
     <section class="panel end-panel hidden" id="endPanel">
       <p class="kicker">Spiel beendet</p>
-      <h2>Pony-Chaos abgeschlossen!</h2>
+      <h2>Spiel abgeschlossen!</h2>
       <div class="winner-inline" id="winnerCelebrationInline" aria-live="polite">
         <img class="winner-inline-gif" id="winnerGifInline" src="winner-01.gif" alt="Animierte Pony-Siegerfeier">
         <div>
           <p class="kicker">Gewinner</p>
-          <h3 id="winnerInlineTitle">Pony-Champion!</h3>
+          <h3 id="winnerInlineTitle">Champion!</h3>
           <strong id="winnerInlineName">Little Gem</strong>
           <span id="winnerInlineScore">0 Punkte</span>
         </div>
@@ -226,13 +233,13 @@
       <div class="dialog-head">
         <div>
           <p class="kicker">Masterliste</p>
-          <h2>Alle Kategorien</h2>
+          <h2 id="categoriesDialogTitle">Alle Kategorien</h2>
         </div>
         <button class="icon-btn" id="closeDialogBtn" type="button" aria-label="Schließen">✕</button>
       </div>
       <div class="dialog-tools">
         <input id="categorySearch" type="search" placeholder="Kategorie suchen …">
-        <span id="dialogCount">77</span>
+        <span id="dialogCount">0</span>
       </div>
       <ol id="categoriesList" class="categories-list"></ol>
     </dialog>
@@ -242,7 +249,7 @@
         <button class="winner-close" id="winnerCloseBtn" type="button" aria-label="Gewinner-Fenster schließen"><span aria-hidden="true">✕</span></button>
         <img class="winner-gif" id="winnerGif" src="winner-01.gif" alt="Animierte Pony-Siegerfeier">
         <p class="kicker">Gewinner</p>
-        <h2 id="winnerTitle">Pony-Champion!</h2>
+        <h2 id="winnerTitle">Champion!</h2>
         <p id="winnerName">Little Gem</p>
         <span id="winnerScore">0 Punkte</span>
       </div>
@@ -250,7 +257,7 @@
   </main>
 
   <footer>
-    Inoffizielles Fan-Spiel · ohne Verbindung zu Hasbro oder den offiziellen MLP-Markeninhabern.
+    Privates Fan-Spiel · Das MLP-Deck ist inoffiziell und steht in keiner Verbindung zu Hasbro oder offiziellen Markeninhabern.
   </footer>
 
   <script type="module" src="script.js"></script>

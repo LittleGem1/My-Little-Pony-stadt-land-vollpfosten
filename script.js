@@ -86,7 +86,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
 
-const CATEGORIES = [
+const MLP_CATEGORIES = [
   "Pony-Name",
   "Ort in Equestria",
   "Bösewicht-Name",
@@ -166,6 +166,249 @@ const CATEGORIES = [
   "Grund, warum Twilight einen Brief mit „ES TUT MIR LEID“ beginnt"
 ];
 
+const FAMILY_CATEGORIES = [
+  "Mädchenname",
+  "Jungenname",
+  "Beruf",
+  "Farbe",
+  "Eissorte",
+  "Süßigkeit",
+  "Stadt",
+  "Land",
+  "Grund für Verspätung",
+  "Tier",
+  "Fluss",
+  "Pflanze",
+  "Getränk",
+  "Film",
+  "Automarke",
+  "Kleidungsstück",
+  "Teil des Körpers",
+  "Hobby",
+  "Obst/Gemüse",
+  "Essen",
+  "Haustiername",
+  "Marke",
+  "Musikinstrument",
+  "Spielzeug",
+  "Schulfach",
+  "Haushaltsgegenstand",
+  "Möbelstück",
+  "Werkzeug",
+  "Wohnungsgegenstand",
+  "Etwas im Supermarkt",
+  "Etwas für den Urlaub",
+  "Urlaubsort",
+  "Geschenk",
+  "Grund für Kündigung",
+  "Grund für Hausverbot",
+  "Grund für Trennung",
+  "Grund, die Polizei zu rufen",
+  "Schlechter Kindername",
+  "Etwas, das man beim ersten Date nicht sagen sollte",
+  "Etwas, das man seinem Chef nicht sagen sollte",
+  "Etwas Ekliges",
+  "Etwas Lautes",
+  "Etwas, das stinkt",
+  "Etwas Teures",
+  "Etwas, das man verlieren kann",
+  "Etwas, das man sammeln kann",
+  "Etwas, wovor man Angst hat",
+  "Etwas, das glücklich macht",
+  "Etwas, das nervt",
+  "Etwas, das man nicht im Bett haben möchte",
+  "Etwas, das man nicht essen sollte",
+  "Etwas in einer Tasche",
+  "Etwas, das Kinder lieben",
+  "Schlechtes Weihnachtsgeschenk",
+  "Superkraft",
+  "Todesursache im Horrorfilm",
+  "Name für ein erfundenes Produkt",
+  "Gegenstand im Auto",
+  "Etwas am Strand",
+  "Etwas auf einer Baustelle",
+  "Etwas im Garten",
+  "Etwas Gefährliches"
+];
+
+const CUSTOM_DECKS_KEY = "slv-custom-decks-v1";
+const BUILTIN_DECKS = [
+  { id: "mlp", name: "MLP Deck", categories: MLP_CATEGORIES },
+  { id: "family", name: "Familien Deck", categories: FAMILY_CATEGORIES }
+];
+
+function normalizeCategoryList(raw) {
+  const values = Array.isArray(raw)
+    ? raw
+    : (raw && typeof raw === "object" ? Object.keys(raw).sort((a, b) => Number(a) - Number(b)).map(key => raw[key]) : []);
+  const seen = new Set();
+  const result = [];
+  for (const item of values) {
+    const category = String(item ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
+    if (!category) continue;
+    const key = category.toLocaleLowerCase("de-DE");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(category);
+    if (result.length >= 300) break;
+  }
+  return result;
+}
+
+function loadCustomDecks() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CUSTOM_DECKS_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(deck => ({
+      id: String(deck.id || ""),
+      name: String(deck.name || "Eigenes Deck").trim().slice(0, 50),
+      categories: normalizeCategoryList(deck.categories)
+    })).filter(deck => deck.id && deck.categories.length >= 10);
+  } catch {
+    return [];
+  }
+}
+
+let customDecks = loadCustomDecks();
+let remoteDecks = [];
+let deckLibraryUnsubscribe = null;
+function saveCustomDecks() {
+  try { localStorage.setItem(CUSTOM_DECKS_KEY, JSON.stringify(customDecks)); }
+  catch (error) { console.warn("Eigene Decks konnten nicht gespeichert werden", error); }
+}
+function allDecks() {
+  const merged = new Map();
+  [...customDecks, ...remoteDecks].forEach(deck => {
+    if (deck?.id && normalizeCategoryList(deck.categories).length >= 10) merged.set(deck.id, deck);
+  });
+  return [...BUILTIN_DECKS, ...merged.values()];
+}
+function subscribeDeckLibrary() {
+  if (deckLibraryUnsubscribe) deckLibraryUnsubscribe();
+  deckLibraryUnsubscribe = onValue(ref(db, "decks"), snapshot => {
+    const raw = snapshot.val() || {};
+    remoteDecks = Object.entries(raw).map(([id, deck]) => ({
+      id,
+      name: String(deck?.name || "Eigenes Deck").trim().slice(0, 50),
+      categories: normalizeCategoryList(deck?.categories)
+    })).filter(deck => deck.categories.length >= 10);
+    const selectedSetup = document.getElementById("deckSelect")?.value || "mlp";
+    refreshSetupDeckUI();
+    if (document.getElementById("deckSelect") && allDecks().some(deck => deck.id === selectedSetup)) {
+      document.getElementById("deckSelect").value = selectedSetup;
+      refreshSetupDeckUI();
+    }
+  }, error => console.warn("Deck-Bibliothek konnte nicht geladen werden", error));
+}
+
+function getDeckById(id) { return allDecks().find(deck => deck.id === id) || BUILTIN_DECKS[0]; }
+function roomDeckCategories(room = state?.room) {
+  const embedded = normalizeCategoryList(room?.settings?.deckCategories);
+  if (embedded.length) return embedded;
+  return getDeckById(room?.settings?.deckId || "mlp").categories;
+}
+function selectedSetupDeck() {
+  const select = document.getElementById("deckSelect");
+  return getDeckById(select?.value || "mlp");
+}
+function activeCategories(room = state?.room) { return room ? roomDeckCategories(room) : selectedSetupDeck().categories; }
+function activeDeckName(room = state?.room) {
+  if (room?.settings?.deckName) return String(room.settings.deckName);
+  if (room?.settings?.deckId) return getDeckById(room.settings.deckId).name;
+  return selectedSetupDeck().name;
+}
+function populateDeckSelect(select, selectedId = "mlp", roomSettings = null) {
+  if (!select) return;
+  const options = allDecks().map(deck => ({ id: deck.id, name: deck.name }));
+  if (roomSettings?.deckId && !options.some(option => option.id === roomSettings.deckId)) {
+    options.push({ id: String(roomSettings.deckId), name: String(roomSettings.deckName || "Deck des Hosts") });
+  }
+  select.innerHTML = options.map(option => `<option value="${escapeHtml(option.id)}">${escapeHtml(option.name)}</option>`).join("");
+  select.value = options.some(option => option.id === selectedId) ? selectedId : options[0]?.id || "mlp";
+}
+function updateTermOptions(select, categoryCount, preferred = 10) {
+  if (!select) return 10;
+  const maxTerms = Math.max(10, Math.floor(Number(categoryCount || 0) / 10) * 10);
+  const values = [];
+  for (let n = 10; n <= maxTerms; n += 10) values.push(n);
+  select.innerHTML = values.map(n => `<option value="${n}">${n} Begriffe</option>`).join("");
+  let chosen = Number(preferred) || 10;
+  if (!values.includes(chosen)) chosen = values.filter(n => n <= chosen).pop() || values[0] || 10;
+  select.value = String(chosen);
+  return chosen;
+}
+function refreshSetupDeckUI(preferredTerms = null) {
+  const select = document.getElementById("deckSelect");
+  if (!select) return;
+  const previous = select.value || "mlp";
+  populateDeckSelect(select, previous);
+  const deck = getDeckById(select.value);
+  const termSelect = document.getElementById("categoryAmount");
+  updateTermOptions(termSelect, deck.categories.length, preferredTerms ?? Number(termSelect?.value || 10));
+  const badge = document.getElementById("categoryCountBadge");
+  if (badge) badge.textContent = `${deck.name} · ${deck.categories.length} Kategorien`;
+}
+function baseDeckNameFromFile(fileName) {
+  return String(fileName || "Eigenes Deck").replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim().slice(0, 50) || "Eigenes Deck";
+}
+async function parseDeckFile(file) {
+  if (!file) throw new Error("Keine Datei ausgewählt.");
+  if (file.size > 250000) throw new Error("Die Deck-Datei ist zu groß (max. 250 KB).");
+  const text = (await file.text()).replace(/^\uFEFF/, "").trim();
+  if (!text) throw new Error("Die Datei ist leer.");
+  let name = baseDeckNameFromFile(file.name);
+  let categories = [];
+  if (file.name.toLowerCase().endsWith(".json") || text.startsWith("{")) {
+    const parsed = JSON.parse(text);
+    name = String(parsed.name || name).trim().slice(0, 50) || name;
+    categories = normalizeCategoryList(parsed.categories || parsed.questions || []);
+  } else {
+    categories = normalizeCategoryList(text.split(/\r?\n/));
+  }
+  if (categories.length < 10) throw new Error("Ein Deck braucht mindestens 10 verschiedene Kategorien.");
+  const slug = name.toLocaleLowerCase("de-DE").replace(/[^a-z0-9äöüß]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "deck";
+  return { id: `custom-${Date.now().toString(36)}-${slug}`, name, categories };
+}
+async function importDeckFromInput(input, target = "setup") {
+  const file = input?.files?.[0];
+  const status = document.getElementById(target === "lobby" ? "lobbyDeckUploadStatus" : "deckUploadStatus");
+  if (!file) return;
+  try {
+    if (status) { status.textContent = "Deck wird geladen …"; status.classList.remove("error"); }
+    const deck = await parseDeckFile(file);
+    customDecks = [...customDecks.filter(existing => existing.name.toLocaleLowerCase("de-DE") !== deck.name.toLocaleLowerCase("de-DE")), deck];
+    saveCustomDecks();
+    if (state.user) {
+      try {
+        await set(ref(db, `decks/${deck.id}`), {
+          name: deck.name,
+          categories: deck.categories,
+          createdBy: state.user.uid,
+          createdAt: serverTimestamp()
+        });
+      } catch (error) {
+        console.warn("Deck konnte nicht global gespeichert werden", error);
+      }
+    }
+    refreshSetupDeckUI();
+    if (target === "lobby") {
+      populateDeckSelect(document.getElementById("lobbyDeckSelect"), deck.id, state.room?.settings || null);
+      document.getElementById("lobbyDeckSelect").value = deck.id;
+      updateTermOptions(document.getElementById("lobbyCategoryAmount"), deck.categories.length, 10);
+      await updateLobbySettings();
+    } else {
+      document.getElementById("deckSelect").value = deck.id;
+      refreshSetupDeckUI(10);
+    }
+    if (status) status.textContent = `${deck.name} geladen · ${deck.categories.length} Kategorien`;
+  } catch (error) {
+    console.error(error);
+    if (status) { status.textContent = error.message || "Deck konnte nicht geladen werden."; status.classList.add("error"); }
+  } finally {
+    input.value = "";
+  }
+}
+
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").filter(letter => !["Q", "X", "Y"].includes(letter));
 const ROOM_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const PROFILE_KEY = "mlp-slv-profile-v2";
@@ -196,7 +439,7 @@ const gamePanel = $("gamePanel");
 const scorePanel = $("scorePanel");
 const endPanel = $("endPanel");
 
-$("categoryCountBadge").textContent = `${CATEGORIES.length} Kategorien`;
+refreshSetupDeckUI();
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -467,11 +710,11 @@ function shuffled(values) {
 function categoryHistory(room = state.room) {
   const raw = room?.categoryHistory;
   const values = Array.isArray(raw) ? raw : (raw && typeof raw === "object" ? Object.values(raw) : []);
-  return values.map(Number).filter(index => Number.isInteger(index) && index >= 0 && index < CATEGORIES.length);
+  return values.map(Number).filter(index => Number.isInteger(index) && index >= 0 && index < activeCategories(room).length);
 }
 
 function categoryTheme(index) {
-  const text = String(CATEGORIES[index] || "").toLowerCase();
+  const text = String(activeCategories()[index] || "").toLowerCase();
   if (text.includes("discord")) return "discord";
   if (text.includes("celestia") || text.includes("luna") || text.includes("prinzessin")) return "royal";
   if (text.includes("twilight")) return "twilight";
@@ -489,7 +732,8 @@ function categoryTheme(index) {
 function pickCategoryIndices(count, room = state.room) {
   // Innerhalb eines Spiels: NIE dieselbe Kategorie doppelt, solange der Pool reicht.
   const usedThisGame = new Set(usedCategoryIndices(room));
-  const allUnused = CATEGORIES.map((_, index) => index).filter(index => !usedThisGame.has(index));
+  const categories = activeCategories(room);
+  const allUnused = categories.map((_, index) => index).filter(index => !usedThisGame.has(index));
   if (!allUnused.length) return [];
 
   // Zusätzlich möglichst keine Kategorien aus den letzten Spielen wiederholen.
@@ -626,7 +870,10 @@ async function createRoom() {
         settings: {
           totalTerms: Number($("categoryAmount").value),
           timerLength: Number($("timerLength").value),
-          noTimePressure: Boolean($("noTimePressure").checked)
+          noTimePressure: Boolean($("noTimePressure").checked),
+          deckId: selectedSetupDeck().id,
+          deckName: selectedSetupDeck().name,
+          deckCategories: selectedSetupDeck().categories
         },
         players: {
           [state.user.uid]: {
@@ -723,16 +970,19 @@ function renderLobby() {
 
   const settings = state.room.settings || {};
   const noTimePressure = Boolean(settings.noTimePressure);
-  $("lobbyCategoryAmount").value = String(settings.totalTerms || settings.categoryAmount || 10);
+  const deckCategories = activeCategories();
+  populateDeckSelect($("lobbyDeckSelect"), settings.deckId || "mlp", settings);
+  $("lobbyDeckSelect").disabled = !state.isHost;
+  updateTermOptions($("lobbyCategoryAmount"), deckCategories.length, Number(settings.totalTerms || settings.categoryAmount || 10));
   $("lobbyNoTimePressure").checked = noTimePressure;
   $("lobbyNoTimePressure").disabled = !state.isHost;
   syncTimeButtons("lobbyTimerLength", settings.timerLength ?? 90, !state.isHost || noTimePressure);
   $("lobbyCategoryAmount").disabled = !state.isHost;
   $("hostSettingsHint").textContent = state.isHost
     ? (noTimePressure
-      ? "Ohne Zeitdruck ist aktiv: Jeder darf in Ruhe fertig werden. Weiter geht es erst, wenn alle fertig sind."
-      : "Du bist Host. Die gewählte Rundenzeit gilt für das ganze Spiel und startet bei jedem neuen Abschnitt wieder neu. Je 10 Begriffe wird ein kompletter 4→3→2→1-Levelblock gespielt.")
-    : (noTimePressure ? "Ohne Zeitdruck ist aktiv. Erst wenn alle fertig sind, geht es weiter." : "Nur der Host kann die Rundenzeit bzw. Ohne-Zeitdruck für das ganze Spiel festlegen.");
+      ? `${activeDeckName()} ist aktiv · Ohne Zeitdruck: Weiter geht es erst, wenn alle fertig sind.`
+      : `${activeDeckName()} ist aktiv · Die Rundenzeit gilt für das ganze Spiel. Je 10 Begriffe wird ein kompletter 4→3→2→1-Levelblock gespielt.`)
+    : `${activeDeckName()} · ${deckCategories.length} Kategorien · ${noTimePressure ? "Ohne Zeitdruck" : "Rundenzeit " + Number(settings.timerLength || 90) + " Sekunden"}.`;
 }
 
 function currentRoundKey() {
@@ -747,7 +997,7 @@ function renderGame() {
   if (!round) return;
   showPanel(gamePanel);
 
-  $("roundLabel").textContent = `${levelTitle(round)} · Raum ${state.roomCode}`;
+  $("roundLabel").textContent = `${levelTitle(round)} · ${activeDeckName()} · Raum ${state.roomCode}`;
   $("levelInstruction").textContent = levelInstruction(round);
   const me = state.room.players?.[state.user.uid];
   $("playerDisplay").textContent = `${me?.name || state.playerName || "Pony"}, los geht's!`;
@@ -792,7 +1042,7 @@ function renderGame() {
     const myAnswers = round.answers?.[state.user.uid] || {};
 
     slots.forEach((slot, visualIndex) => {
-      const category = CATEGORIES[slot.categoryIndex] || "Unbekannte Kategorie";
+      const category = activeCategories()[slot.categoryIndex] || "Unbekannte Kategorie";
       const row = document.createElement("div");
       row.className = "answer-row";
       const prefix = round.mode === "one-double" ? slot.variant : (round.mode === "three-sequential" ? slot.variant : `${visualIndex + 1}.`);
@@ -871,11 +1121,22 @@ function startRoundClock(round) {
 
 async function updateLobbySettings() {
   if (!state.isHost || !state.roomCode) return;
-  await update(ref(db, `rooms/${state.roomCode}/settings`), {
-    totalTerms: Number($("lobbyCategoryAmount").value),
-    timerLength: Number($("lobbyTimerLength").value),
-    noTimePressure: Boolean($("lobbyNoTimePressure").checked)
-  });
+  const selectedId = $("lobbyDeckSelect")?.value || state.room?.settings?.deckId || "mlp";
+  let deck = allDecks().find(item => item.id === selectedId);
+  if (!deck && selectedId === state.room?.settings?.deckId) deck = { id: selectedId, name: activeDeckName(), categories: activeCategories() };
+  deck = deck || BUILTIN_DECKS[0];
+  const previousDeckId = state.room?.settings?.deckId || "mlp";
+  const totalTerms = updateTermOptions($("lobbyCategoryAmount"), deck.categories.length, Number($("lobbyCategoryAmount").value || 10));
+  const updates = {
+    "settings/totalTerms": totalTerms,
+    "settings/timerLength": Number($("lobbyTimerLength").value),
+    "settings/noTimePressure": Boolean($("lobbyNoTimePressure").checked),
+    "settings/deckId": deck.id,
+    "settings/deckName": deck.name,
+    "settings/deckCategories": deck.categories
+  };
+  if (deck.id !== previousDeckId) updates.categoryHistory = null;
+  await update(ref(db, `rooms/${state.roomCode}`), updates);
 }
 
 function makeRound(nextNumber) {
@@ -928,7 +1189,9 @@ async function saveVisibleAnswers() {
   const roundNumber = Number(state.room.currentRoundNumber);
   const writes = Array.from($("answersForm").querySelectorAll(".answer-input")).map(input => {
     const answerIndex = input.dataset.index;
-    const value = input.value.slice(0, 120);
+    const requiredLetter = String(input.dataset.letter || "").charAt(0).toLocaleUpperCase("de-DE");
+    const suffix = normalizeAnswer(input.value).slice(0, 119);
+    const value = suffix ? `${requiredLetter}${suffix}` : "";
     return set(ref(db, `rooms/${state.roomCode}/rounds/${roundNumber}/answers/${state.user.uid}/${answerIndex}`), value || null);
   });
   await Promise.all(writes);
@@ -1105,7 +1368,7 @@ function renderScoring() {
   slots.forEach((slot, visualIndex) => {
     const item = document.createElement("div");
     item.className = "score-item";
-    const category = CATEGORIES[slot.categoryIndex] || "Unbekannte Kategorie";
+    const category = activeCategories()[slot.categoryIndex] || "Unbekannte Kategorie";
     const rows = players.map(([uid, player]) => {
       const answer = String(round.answers?.[uid]?.[slot.slotIndex] || "");
       const isMe = uid === state.user.uid;
@@ -1291,7 +1554,7 @@ function renderEnd() {
 
   // Feste Siegeranzeige auf der Endseite: Diese sieht garantiert jeder Spieler im Raum.
   $("winnerGifInline").src = gifSrc;
-  $("winnerInlineTitle").textContent = winners.length > 1 ? "Pony-Champions!" : "Pony-Champion!";
+  $("winnerInlineTitle").textContent = winners.length > 1 ? "Champions!" : "Champion!";
   $("winnerInlineName").textContent = winnerNames;
   $("winnerInlineScore").textContent = `${formatScore(maxScore)} Punkte`;
 
@@ -1299,7 +1562,7 @@ function renderEnd() {
   if (state.winnerDismissedKey !== popupKey) {
     state.winnerPopupKey = popupKey;
     $("winnerName").textContent = winnerNames;
-    $("winnerTitle").textContent = winners.length > 1 ? "Pony-Champions!" : "Pony-Champion!";
+    $("winnerTitle").textContent = winners.length > 1 ? "Champions!" : "Champion!";
     $("winnerScore").textContent = `${formatScore(maxScore)} Punkte`;
     $("winnerGif").src = gifSrc;
     $("winnerPopup").classList.remove("hidden");
@@ -1402,6 +1665,17 @@ document.addEventListener("keydown", event => {
 }, true);
 
 $("answersForm").addEventListener("submit", event => event.preventDefault());
+$("deckSelect").addEventListener("change", () => refreshSetupDeckUI(10));
+$("uploadDeckBtn").addEventListener("click", () => $("deckFileInput").click());
+$("deckFileInput").addEventListener("change", () => importDeckFromInput($("deckFileInput"), "setup"));
+$("lobbyDeckSelect").addEventListener("change", async () => {
+  if (!state.isHost) return;
+  const deck = getDeckById($("lobbyDeckSelect").value);
+  updateTermOptions($("lobbyCategoryAmount"), deck.categories.length, 10);
+  await updateLobbySettings();
+});
+$("lobbyUploadDeckBtn").addEventListener("click", () => $("lobbyDeckFileInput").click());
+$("lobbyDeckFileInput").addEventListener("change", () => importDeckFromInput($("lobbyDeckFileInput"), "lobby"));
 $("lobbyCategoryAmount").addEventListener("change", updateLobbySettings);
 
 $("hostStartBtn").addEventListener("click", startNextRound);
@@ -1448,9 +1722,10 @@ $("winnerPopup").addEventListener("click", event => {
 const dialog = $("categoriesDialog");
 function renderCategoryDialog(query = "") {
   const normalized = query.trim().toLowerCase();
-  const filtered = CATEGORIES.filter(category => category.toLowerCase().includes(normalized));
+  const filtered = activeCategories(state.room || null).filter(category => category.toLowerCase().includes(normalized));
   $("categoriesList").innerHTML = filtered.map(category => `<li>${escapeHtml(category)}</li>`).join("");
   $("dialogCount").textContent = filtered.length;
+  if ($("categoriesDialogTitle")) $("categoriesDialogTitle").textContent = `${activeDeckName(state.room || null)} · Kategorien`;
 }
 $("showCategoriesBtn").addEventListener("click", () => {
   renderCategoryDialog();
@@ -1475,6 +1750,7 @@ onAuthStateChanged(auth, async user => {
   if (user) {
     state.user = user;
     await loadProfileForUser();
+    subscribeDeckLibrary();
     setConnection("Firebase verbunden · Multiplayer bereit", "online");
     $("createRoomBtn").disabled = false;
     $("joinRoomBtn").disabled = false;
@@ -1491,4 +1767,7 @@ signInAnonymously(auth).catch(error => {
   setSetupMessage("Die anonyme Anmeldung hat nicht funktioniert. Prüfe Firebase Authentication.", true);
 });
 
-window.addEventListener("beforeunload", stopLocalTimer);
+window.addEventListener("beforeunload", () => {
+  stopLocalTimer();
+  if (deckLibraryUnsubscribe) deckLibraryUnsubscribe();
+});
