@@ -594,6 +594,9 @@ const state = {
   offsetUnsubscribe: null,
   serverOffset: 0,
   timerId: null,
+  timerSegmentKey: "",
+  timerDeadline: 0,
+  timerExpiryActionKey: "",
   renderKey: "",
   localRoundKey: "",
   playerName: "",
@@ -768,11 +771,45 @@ function serverNow() {
   return Date.now() + state.serverOffset;
 }
 
-function stopLocalTimer() {
+function stopLocalTimer(resetIdentity = true) {
   if (state.timerId) {
     clearInterval(state.timerId);
     state.timerId = null;
   }
+  if (resetIdentity) {
+    state.timerSegmentKey = "";
+    state.timerDeadline = 0;
+    state.timerExpiryActionKey = "";
+  }
+}
+
+function roundDurationSeconds(round) {
+  const value = Number(round?.duration ?? state.room?.settings?.timerLength ?? 90);
+  return Number.isFinite(value) && value > 0 ? value : 90;
+}
+
+function roundDeadlineMs(round) {
+  const explicit = Number(round?.endsAt);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+
+  // Fallback für ältere/fehlerhafte Räume: Auch im „Ohne Stop“-Modus muss
+  // immer eine echte Deadline existieren. Falls endsAt fehlt, leiten wir sie
+  // aus startedAt + Rundenzeit ab, statt den Countdown stehen zu lassen.
+  const started = Number(round?.startedAt);
+  if (Number.isFinite(started) && started > 0) {
+    return started + roundDurationSeconds(round) * 1000;
+  }
+  return serverNow() + roundDurationSeconds(round) * 1000;
+}
+
+function timerSegmentKey(round) {
+  return [
+    Number(state.room?.currentRoundNumber || 0),
+    round?.mode || "",
+    Number(round?.activeStep || 0),
+    Number(round?.startedAt || 0),
+    roundDurationSeconds(round)
+  ].join("|");
 }
 
 function totalTermsTarget(room = state.room) {
@@ -1193,7 +1230,13 @@ function renderGame() {
   $("stopRoundBtn").classList.toggle("btn-finished", noStopMode);
   $("stopRoundBtn").textContent = noStopMode
     ? (readyState.meReady ? "Abgeschickt ✓" : "Antworten abschicken ✓")
-    : "STOP FÜR ALLE!";
+    : (round.mode === "three-sequential" ? "🛑 Frage frühzeitig beenden" : "🛑 Runde frühzeitig beenden");
+  $("stopRoundBtn").setAttribute(
+    "aria-label",
+    noStopMode
+      ? "Antworten abschicken"
+      : (round.mode === "three-sequential" ? "Aktuelle Frage frühzeitig für alle beenden" : "Runde frühzeitig für alle beenden")
+  );
   $("stopRoundBtn").disabled = Boolean(noStopMode && readyState.meReady);
 
   if (noStopMode) {
@@ -1269,26 +1312,58 @@ function renderGame() {
 }
 
 function startRoundClock(round) {
-  stopLocalTimer();
   const timerCard = $("timerCard");
-  timerCard.classList.remove("warning", "danger");
-
   timerCard.classList.remove("relaxed");
+
+  const segmentKey = timerSegmentKey(round);
+  const deadline = roundDeadlineMs(round);
+
+  // Antworten werden live in Firebase gespeichert. Dadurch wird renderGame()
+  // bei jedem Tipp erneut aufgerufen. Der Countdown darf dabei NICHT jedes Mal
+  // neu gestartet werden – besonders auf Handys konnte er dadurch praktisch
+  // stehen bleiben. Nur ein neuer Abschnitt / eine neue Deadline startet einen
+  // neuen lokalen Taktgeber.
+  if (state.timerId && state.timerSegmentKey === segmentKey && state.timerDeadline === deadline) {
+    return;
+  }
+
+  stopLocalTimer(false);
+  state.timerSegmentKey = segmentKey;
+  state.timerDeadline = deadline;
+  state.timerExpiryActionKey = "";
+
   const updateClock = () => {
-    const duration = Number(round.duration || state.room.settings?.timerLength || 90);
+    if (state.room?.status !== "playing") {
+      stopLocalTimer();
+      return;
+    }
+
     timerCard.classList.remove("warning", "danger");
-    const seconds = Math.max(0, Math.ceil((Number(round.endsAt) - serverNow()) / 1000));
+    const seconds = Math.max(0, Math.ceil((state.timerDeadline - serverNow()) / 1000));
     $("timerDisplay").textContent = formatTime(seconds);
+
     if (seconds <= 15) timerCard.classList.add("danger");
     else if (seconds <= 30) timerCard.classList.add("warning");
 
     if (seconds <= 0) {
-      stopLocalTimer();
-      if (state.isHost && state.room?.status === "playing") advanceOrScore("Zeit abgelaufen");
+      if (state.timerId) {
+        clearInterval(state.timerId);
+        state.timerId = null;
+      }
+
+      // Nur der Host ändert den gemeinsamen Spielzustand. Der Schlüssel sorgt
+      // dafür, dass 0:00 nicht mehrfach dieselbe Transaktion auslöst.
+      if (state.isHost && state.room?.status === "playing" && state.timerExpiryActionKey !== segmentKey) {
+        state.timerExpiryActionKey = segmentKey;
+        void advanceOrScore("Zeit abgelaufen");
+      }
     }
   };
+
   updateClock();
-  state.timerId = setInterval(updateClock, 250);
+  if (state.timerDeadline > serverNow()) {
+    state.timerId = setInterval(updateClock, 200);
+  }
 }
 
 async function updateLobbySettings() {
@@ -1869,10 +1944,31 @@ $("lobbyCategoryAmount").addEventListener("change", updateLobbySettings);
 $("hostStartBtn").addEventListener("click", startNextRound);
 $("leaveRoomBtn").addEventListener("click", leaveRoom);
 $("leaveRoomFromEndBtn").addEventListener("click", leaveRoom);
-$("stopRoundBtn").addEventListener("click", () => {
-  if (isNoStopMode()) markAnswerFinished();
-  else advanceOrScore("STOP gedrückt");
-});
+let roundEndActionPending = false;
+async function handleRoundEndAction() {
+  if (roundEndActionPending) return;
+  const button = $("stopRoundBtn");
+  roundEndActionPending = true;
+  const previousDisabled = button.disabled;
+  button.disabled = true;
+  button.classList.add("action-pending");
+  try {
+    if (isNoStopMode()) {
+      await markAnswerFinished();
+    } else {
+      await advanceOrScore("STOP gedrückt");
+    }
+  } catch (error) {
+    console.error("Rundenaktion fehlgeschlagen", error);
+  } finally {
+    roundEndActionPending = false;
+    button.classList.remove("action-pending");
+    // Falls wir noch in derselben Spielansicht sind, darf der Button wieder reagieren.
+    if (state.room?.status === "playing") button.disabled = previousDisabled;
+  }
+}
+
+$("stopRoundBtn").addEventListener("click", handleRoundEndAction);
 $("newLetterBtn").addEventListener("click", rerollLetters);
 $("restartTimerBtn").addEventListener("click", restartTimerForAll);
 $("readyBtn").addEventListener("click", markReady);
