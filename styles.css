@@ -824,3 +824,40 @@ footer { width: min(1100px, calc(100% - 28px)); margin: 0 auto; padding: 0 0 34p
   .uploaded-deck-row { grid-template-columns: 1fr; }
   .deck-delete-btn { width: 100%; }
 }
+
+/* V18: native Dropdown-Liste lesbar halten.
+   Einige Browser (u.a. Opera/Windows) zeichnen geöffnete <select>-Listen hell,
+   ignorieren aber den dunklen option-Hintergrund. Deshalb bekommen die
+   Optionen bewusst dunkle Schrift auf hellem Grund. Das geschlossene Feld
+   bleibt weiterhin dunkel mit weißer Schrift. */
+#deckSelect,
+#lobbyDeckSelect,
+#categoryAmount,
+#lobbyCategoryAmount {
+  background: #211a2e !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff;
+  color-scheme: light;
+}
+
+#deckSelect option,
+#lobbyDeckSelect option,
+#categoryAmount option,
+#lobbyCategoryAmount option,
+#deckSelect optgroup,
+#lobbyDeckSelect optgroup,
+#categoryAmount optgroup,
+#lobbyCategoryAmount optgroup {
+  background: #ffffff !important;
+  color: #241a33 !important;
+  -webkit-text-fill-color: #241a33 !important;
+  font-weight: 800;
+}
+
+#deckSelect option:checked,
+#lobbyDeckSelect option:checked,
+#categoryAmount option:checked,
+#lobbyCategoryAmount option:checked {
+  color: #241a33 !important;
+  -webkit-text-fill-color: #241a33 !important;
+}
