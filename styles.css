@@ -962,3 +962,25 @@ footer { width: min(1100px, calc(100% - 28px)); margin: 0 auto; padding: 0 0 34p
     min-height: 78px;
   }
 }
+
+
+/* V20: Anfangsbuchstabe muss selbst getippt werden; falscher Start wird abgewiesen. */
+.manual-answer-field {
+  width: 100%;
+  min-width: 0;
+}
+.manual-answer-field .answer-input {
+  width: 100%;
+}
+.locked-letter-prefix { display: none !important; }
+
+/* 30 Punkte = besondere Einzelantwort. */
+.point-btn.thirty {
+  border-color: rgba(255, 217, 120, .72);
+  background: linear-gradient(135deg, rgba(255,217,120,.22), rgba(255,126,210,.16));
+  color: var(--gold);
+  font-weight: 950;
+}
+.point-btn.thirty.selected {
+  box-shadow: 0 0 0 3px rgba(255,217,120,.16), 0 0 22px rgba(255,217,120,.16);
+}

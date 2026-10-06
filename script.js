@@ -779,7 +779,7 @@ function totalTermsTarget(room = state.room) {
   return Number(room?.settings?.totalTerms || room?.settings?.categoryAmount || 10);
 }
 
-function isNoTimePressure(round = roundData()) {
+function isNoStopMode(round = roundData()) {
   if (round && Object.prototype.hasOwnProperty.call(round, "noTimePressure")) return Boolean(round.noTimePressure);
   return Boolean(state.room?.settings?.noTimePressure);
 }
@@ -1140,21 +1140,21 @@ function renderLobby() {
   }).join("");
 
   const settings = state.room.settings || {};
-  const noTimePressure = Boolean(settings.noTimePressure);
+  const noStopMode = Boolean(settings.noTimePressure);
   const deckCategories = activeCategories();
   populateDeckSelect($("lobbyDeckSelect"), settings.deckId || "mlp", settings);
   $("lobbyDeckSelect").disabled = !state.isHost;
   renderDeckChoiceCards("deckChoiceLobby", $("lobbyDeckSelect"), !state.isHost, settings);
   updateTermOptions($("lobbyCategoryAmount"), deckCategories.length, Number(settings.totalTerms || settings.categoryAmount || 10));
-  $("lobbyNoTimePressure").checked = noTimePressure;
+  $("lobbyNoTimePressure").checked = noStopMode;
   $("lobbyNoTimePressure").disabled = !state.isHost;
-  syncTimeButtons("lobbyTimerLength", settings.timerLength ?? 90, !state.isHost || noTimePressure);
+  syncTimeButtons("lobbyTimerLength", settings.timerLength ?? 90, !state.isHost);
   $("lobbyCategoryAmount").disabled = !state.isHost;
   $("hostSettingsHint").textContent = state.isHost
-    ? (noTimePressure
-      ? `${activeDeckName()} ist aktiv · Ohne Zeitdruck: Weiter geht es erst, wenn alle fertig sind.`
-      : `${activeDeckName()} ist aktiv · Die Rundenzeit gilt für das ganze Spiel. Je 10 Begriffe wird ein kompletter 4→3→2→1-Levelblock gespielt.`)
-    : `${activeDeckName()} · ${deckCategories.length} Kategorien · ${noTimePressure ? "Ohne Zeitdruck" : "Rundenzeit " + Number(settings.timerLength || 90) + " Sekunden"}.`;
+    ? (noStopMode
+      ? `${activeDeckName()} ist aktiv · Ohne Stop: ${Number(settings.timerLength || 90)} Sekunden pro Abschnitt. Ende bei 0:00 oder sobald alle abgeschickt haben.`
+      : `${activeDeckName()} ist aktiv · ${Number(settings.timerLength || 90)} Sekunden pro Abschnitt mit STOP für alle.`)
+    : `${activeDeckName()} · ${deckCategories.length} Kategorien · ${Number(settings.timerLength || 90)} Sekunden · ${noStopMode ? "Ohne Stop" : "mit STOP"}.`;
 }
 
 function currentRoundKey() {
@@ -1185,21 +1185,21 @@ function renderGame() {
     $("letterDisplay").classList.remove("multi-letter");
   }
 
-  const relaxedMode = isNoTimePressure(round);
-  const readyState = relaxedMode ? answerReadyState(round) : null;
-  $("timerStatLabel").textContent = relaxedMode ? "Ohne Zeitdruck" : "Zeit";
-  $("timerCard").classList.toggle("relaxed", relaxedMode);
-  $("restartTimerBtn").classList.toggle("hidden", relaxedMode || !state.isHost);
-  $("stopRoundBtn").classList.toggle("btn-finished", relaxedMode);
-  $("stopRoundBtn").textContent = relaxedMode
-    ? (readyState.meReady ? "Fertig ✓" : "Ich bin fertig ✓")
+  const noStopMode = isNoStopMode(round);
+  const readyState = noStopMode ? answerReadyState(round) : null;
+  $("timerStatLabel").textContent = noStopMode ? "Zeit · Ohne Stop" : "Zeit";
+  $("timerCard").classList.remove("relaxed");
+  $("restartTimerBtn").classList.toggle("hidden", !state.isHost);
+  $("stopRoundBtn").classList.toggle("btn-finished", noStopMode);
+  $("stopRoundBtn").textContent = noStopMode
+    ? (readyState.meReady ? "Abgeschickt ✓" : "Antworten abschicken ✓")
     : "STOP FÜR ALLE!";
-  $("stopRoundBtn").disabled = Boolean(relaxedMode && readyState.meReady);
+  $("stopRoundBtn").disabled = Boolean(noStopMode && readyState.meReady);
 
-  if (relaxedMode) {
+  if (noStopMode) {
     $("stopHint").textContent = readyState.meReady
-      ? `Du bist fertig · ${readyState.ready}/${readyState.total} Spieler fertig. Warte entspannt auf die anderen.`
-      : `${readyState.ready}/${readyState.total} Spieler fertig. Du kannst in Ruhe weitermachen – niemand kann deine Zeit beenden.`;
+      ? `Abgeschickt · ${readyState.ready}/${readyState.total} Spieler fertig. Die anderen dürfen bis zum Timerende weiterschreiben.`
+      : `${readyState.ready}/${readyState.total} Spieler fertig. Kein STOP: Die Runde endet bei 0:00 oder sofort, sobald alle abgeschickt haben.`;
   } else {
     $("stopHint").textContent = round.mode === "three-sequential"
       ? `STOP beendet Frage ${Number(round.activeStep || 0) + 1}. Danach kommt ${Number(round.activeStep || 0) < 2 ? "direkt die nächste Frage" : "die Auswertung"}.`
@@ -1219,17 +1219,15 @@ function renderGame() {
       row.className = "answer-row";
       const prefix = round.mode === "one-double" ? slot.variant : (round.mode === "three-sequential" ? slot.variant : `${visualIndex + 1}.`);
       const initialAnswer = sanitizeAnswerForLetter(myAnswers[slot.slotIndex] || "", slot.letter);
-      const initialSuffix = initialAnswer ? initialAnswer.slice(1) : "";
       row.innerHTML = `
         <label class="answer-label" for="answer-${slot.slotIndex}">
           <span class="question-letter">${escapeHtml(slot.letter)}</span>
           <span><span class="answer-number">${escapeHtml(prefix)}</span>${escapeHtml(category)}</span>
         </label>
-        <div class="locked-answer-field">
-          <span class="locked-letter-prefix" aria-hidden="true">${escapeHtml(slot.letter)}</span>
-          <input class="answer-input answer-suffix-input" id="answer-${slot.slotIndex}" data-index="${slot.slotIndex}" data-letter="${escapeHtml(slot.letter)}" autocomplete="off" spellcheck="false" autocapitalize="sentences" maxlength="119" aria-label="Antwort beginnt fest mit ${escapeHtml(slot.letter)}. Rest der Antwort eingeben" placeholder="Rest der Antwort …" value="${escapeHtml(initialSuffix)}">
+        <div class="manual-answer-field">
+          <input class="answer-input manual-letter-input" id="answer-${slot.slotIndex}" data-index="${slot.slotIndex}" data-letter="${escapeHtml(slot.letter)}" data-last-valid="${escapeHtml(initialAnswer)}" autocomplete="off" spellcheck="false" autocapitalize="sentences" maxlength="120" aria-label="Antwort muss mit ${escapeHtml(slot.letter)} beginnen" placeholder="Antwort mit ${escapeHtml(slot.letter)} …" value="${escapeHtml(initialAnswer)}">
         </div>
-        <div class="letter-rule-hint"><strong>${escapeHtml(slot.letter)}</strong> ist fest vorgegeben und kann nicht geändert werden.</div>
+        <div class="letter-rule-hint">Tippe <strong>${escapeHtml(slot.letter)}</strong> selbst als ersten Buchstaben. Ein anderer Anfang wird nicht akzeptiert.</div>
       `;
       form.appendChild(row);
     });
@@ -1239,14 +1237,22 @@ function renderGame() {
         const field = event.currentTarget;
         const answerIndex = field.dataset.index;
         const requiredLetter = String(field.dataset.letter || "").charAt(0).toLocaleUpperCase("de-DE");
-        const suffix = normalizeAnswer(field.value).slice(0, 119);
+        const cleaned = normalizeAnswer(field.value);
+        const lastValid = String(field.dataset.lastValid || "");
 
-        // Der geforderte Anfangsbuchstabe ist kein editierbarer Teil des Feldes.
-        // In Firebase wird trotzdem immer die vollständige Antwort gespeichert.
-        field.value = suffix;
-        const fullAnswer = suffix ? `${requiredLetter}${suffix}` : "";
+        if (cleaned && !answerStartsWithLetter(cleaned, requiredLetter)) {
+          field.value = lastValid;
+          field.classList.remove("wrong-letter");
+          void field.offsetWidth;
+          field.classList.add("wrong-letter");
+          setTimeout(() => field.classList.remove("wrong-letter"), 450);
+          return;
+        }
+
+        field.value = cleaned;
+        field.dataset.lastValid = cleaned;
         try {
-          await set(ref(db, `rooms/${state.roomCode}/rounds/${state.room.currentRoundNumber}/answers/${state.user.uid}/${answerIndex}`), fullAnswer || null);
+          await set(ref(db, `rooms/${state.roomCode}/rounds/${state.room.currentRoundNumber}/answers/${state.user.uid}/${answerIndex}`), cleaned || null);
         } catch (error) {
           console.error("Antwort konnte nicht gespeichert werden", error);
         }
@@ -1256,7 +1262,7 @@ function renderGame() {
   }
 
   $("answersForm").querySelectorAll(".answer-input").forEach(input => {
-    input.disabled = Boolean(relaxedMode && readyState?.meReady);
+    input.disabled = Boolean(noStopMode && readyState?.meReady);
   });
 
   startRoundClock(round);
@@ -1266,12 +1272,6 @@ function startRoundClock(round) {
   stopLocalTimer();
   const timerCard = $("timerCard");
   timerCard.classList.remove("warning", "danger");
-
-  if (isNoTimePressure(round)) {
-    timerCard.classList.add("relaxed");
-    $("timerDisplay").textContent = "∞";
-    return;
-  }
 
   timerCard.classList.remove("relaxed");
   const updateClock = () => {
@@ -1326,7 +1326,7 @@ function makeRound(nextNumber) {
     duration,
     noTimePressure,
     startedAt,
-    endsAt: noTimePressure ? 0 : startedAt + duration * 1000,
+    endsAt: startedAt + duration * 1000,
     answers: {},
     answerReady: {},
     votes: {},
@@ -1363,8 +1363,7 @@ async function saveVisibleAnswers() {
   const writes = Array.from($("answersForm").querySelectorAll(".answer-input")).map(input => {
     const answerIndex = input.dataset.index;
     const requiredLetter = String(input.dataset.letter || "").charAt(0).toLocaleUpperCase("de-DE");
-    const suffix = normalizeAnswer(input.value).slice(0, 119);
-    const value = suffix ? `${requiredLetter}${suffix}` : "";
+    const value = sanitizeAnswerForLetter(input.value, requiredLetter);
     return set(ref(db, `rooms/${state.roomCode}/rounds/${roundNumber}/answers/${state.user.uid}/${answerIndex}`), value || null);
   });
   await Promise.all(writes);
@@ -1402,6 +1401,7 @@ async function markAnswerFinished() {
         if (activeStep < 2) {
           round.activeStep = activeStep + 1;
           round.startedAt = now;
+          round.endsAt = now + Number(round.duration || room.settings?.timerLength || 90) * 1000;
           round.lastAdvanceReason = "Alle fertig";
           return room;
         }
@@ -1486,7 +1486,7 @@ async function rerollLetters() {
 async function restartTimerForAll() {
   if (!state.isHost) return;
   const round = roundData();
-  if (!round || isNoTimePressure(round)) return;
+  if (!round) return;
   const duration = Number(round.duration ?? state.room.settings?.timerLength ?? 90);
   const now = serverNow();
   await update(ref(db, `rooms/${state.roomCode}/rounds/${state.room.currentRoundNumber}`), {
@@ -1557,7 +1557,7 @@ function renderScoring() {
         scoring = `<span class="empty-answer">0 P. · keine Antwort</span>`;
       } else {
         const myVote = round.votes?.[state.user.uid]?.[uid]?.[slot.slotIndex];
-        scoring = `<div class="score-buttons" data-target="${escapeHtml(uid)}" data-index="${slot.slotIndex}">${[0, 5, 10, 20].map(points => `<button class="point-btn ${points === 0 ? "zero" : ""} ${points === 20 ? "twenty" : ""} ${Number(myVote) === points ? "selected" : ""}" type="button" data-points="${points}" ${meReady ? "disabled" : ""}>${points}</button>`).join("")}</div>`;
+        scoring = `<div class="score-buttons" data-target="${escapeHtml(uid)}" data-index="${slot.slotIndex}">${[0, 5, 10, 20, 30].map(points => `<button class="point-btn ${points === 0 ? "zero" : ""} ${points === 20 ? "twenty" : ""} ${points === 30 ? "thirty" : ""} ${Number(myVote) === points ? "selected" : ""}" type="button" data-points="${points}" ${meReady ? "disabled" : ""}>${points}</button>`).join("")}</div>`;
       }
 
       return `<div class="comparison-row ${isMe ? "me" : ""}">
@@ -1814,8 +1814,7 @@ document.querySelectorAll(".time-choice .time-option").forEach(button => {
   });
 });
 function syncSetupPressureUI() {
-  const relaxed = Boolean($("noTimePressure").checked);
-  syncTimeButtons("timerLength", Number($("timerLength").value || 90), relaxed);
+  syncTimeButtons("timerLength", Number($("timerLength").value || 90), false);
 }
 
 syncTimeButtons("timerLength", 90, false);
@@ -1871,7 +1870,7 @@ $("hostStartBtn").addEventListener("click", startNextRound);
 $("leaveRoomBtn").addEventListener("click", leaveRoom);
 $("leaveRoomFromEndBtn").addEventListener("click", leaveRoom);
 $("stopRoundBtn").addEventListener("click", () => {
-  if (isNoTimePressure()) markAnswerFinished();
+  if (isNoStopMode()) markAnswerFinished();
   else advanceOrScore("STOP gedrückt");
 });
 $("newLetterBtn").addEventListener("click", rerollLetters);
