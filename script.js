@@ -232,10 +232,32 @@ const FAMILY_CATEGORIES = [
 ];
 
 const CUSTOM_DECKS_KEY = "slv-custom-decks-v1";
+const PREFERRED_DECK_KEY = "slv-preferred-deck-v1";
+
+// Diese beiden Decks sind fester Bestandteil der Webseite: Sie werden weder
+// aus Firebase noch aus dem Browser geladen und können dadurch nicht verschwinden.
 const BUILTIN_DECKS = [
   { id: "mlp", name: "MLP Deck", categories: MLP_CATEGORIES },
   { id: "family", name: "Familien Deck", categories: FAMILY_CATEGORIES }
 ];
+
+function normalizedDeckName(name) {
+  return String(name || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("de-DE");
+}
+
+function isBuiltinDeck(deck) {
+  return BUILTIN_DECKS.some(preset => deck?.id === preset.id || normalizedDeckName(deck?.name) === normalizedDeckName(preset.name));
+}
+
+function lastChosenDeckId() {
+  try { return localStorage.getItem(PREFERRED_DECK_KEY) || "mlp"; }
+  catch { return "mlp"; }
+}
+
+function rememberChosenDeck(id) {
+  try { if (id) localStorage.setItem(PREFERRED_DECK_KEY, String(id)); }
+  catch (error) { console.warn("Deckauswahl konnte nicht gespeichert werden", error); }
+}
 
 function normalizeCategoryList(raw) {
   const values = Array.isArray(raw)
@@ -277,11 +299,16 @@ function saveCustomDecks() {
   catch (error) { console.warn("Eigene Decks konnten nicht gespeichert werden", error); }
 }
 function allDecks() {
-  const merged = new Map();
-  [...customDecks, ...remoteDecks].forEach(deck => {
-    if (deck?.id && normalizeCategoryList(deck.categories).length >= 10) merged.set(deck.id, deck);
+  // Bereits früher hochgeladene Kopien von „MLP Deck“/„Familien Deck“
+  // nicht nochmal anzeigen. Es bleiben genau zwei eingebaute Originale.
+  const otherDecksByName = new Map();
+  [...remoteDecks, ...customDecks].forEach(deck => {
+    if (!deck?.id || isBuiltinDeck(deck)) return;
+    const categories = normalizeCategoryList(deck.categories);
+    if (categories.length < 10) return;
+    otherDecksByName.set(normalizedDeckName(deck.name), { ...deck, categories });
   });
-  return [...BUILTIN_DECKS, ...merged.values()];
+  return [...BUILTIN_DECKS, ...otherDecksByName.values()];
 }
 function subscribeDeckLibrary() {
   if (deckLibraryUnsubscribe) deckLibraryUnsubscribe();
@@ -292,10 +319,13 @@ function subscribeDeckLibrary() {
       name: String(deck?.name || "Eigenes Deck").trim().slice(0, 50),
       categories: normalizeCategoryList(deck?.categories)
     })).filter(deck => deck.categories.length >= 10);
-    const selectedSetup = document.getElementById("deckSelect")?.value || "mlp";
+    // Auch wenn neue Firebase-Decks ankommen, nicht das gerade gewählte
+    // oder gespeicherte Standard-Deck ungefragt zurücksetzen.
+    const selectedSetup = document.getElementById("deckSelect")?.value || lastChosenDeckId();
     refreshSetupDeckUI();
-    if (document.getElementById("deckSelect") && allDecks().some(deck => deck.id === selectedSetup)) {
-      document.getElementById("deckSelect").value = selectedSetup;
+    const select = document.getElementById("deckSelect");
+    if (select && allDecks().some(deck => deck.id === selectedSetup)) {
+      select.value = selectedSetup;
       refreshSetupDeckUI();
     }
   }, error => console.warn("Deck-Bibliothek konnte nicht geladen werden", error));
@@ -340,7 +370,7 @@ function updateTermOptions(select, categoryCount, preferred = 10) {
 function refreshSetupDeckUI(preferredTerms = null) {
   const select = document.getElementById("deckSelect");
   if (!select) return;
-  const previous = select.value || "mlp";
+  const previous = select.value || lastChosenDeckId();
   populateDeckSelect(select, previous);
   const deck = getDeckById(select.value);
   const termSelect = document.getElementById("categoryAmount");
@@ -366,6 +396,9 @@ async function parseDeckFile(file) {
     categories = normalizeCategoryList(text.split(/\r?\n/));
   }
   if (categories.length < 10) throw new Error("Ein Deck braucht mindestens 10 verschiedene Kategorien.");
+  if (isBuiltinDeck({ name })) {
+    throw new Error(`„${name}“ ist schon dauerhaft eingebaut. Bitte wähle es direkt im Deck-Menü aus – kein Hochladen nötig.`);
+  }
   const slug = name.toLocaleLowerCase("de-DE").replace(/[^a-z0-9äöüß]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "deck";
   return { id: `custom-${Date.now().toString(36)}-${slug}`, name, categories };
 }
@@ -376,7 +409,7 @@ async function importDeckFromInput(input, target = "setup") {
   try {
     if (status) { status.textContent = "Deck wird geladen …"; status.classList.remove("error"); }
     const deck = await parseDeckFile(file);
-    customDecks = [...customDecks.filter(existing => existing.name.toLocaleLowerCase("de-DE") !== deck.name.toLocaleLowerCase("de-DE")), deck];
+    customDecks = [...customDecks.filter(existing => normalizedDeckName(existing.name) !== normalizedDeckName(deck.name)), deck];
     saveCustomDecks();
     if (state.user) {
       try {
@@ -400,6 +433,7 @@ async function importDeckFromInput(input, target = "setup") {
       document.getElementById("deckSelect").value = deck.id;
       refreshSetupDeckUI(10);
     }
+    rememberChosenDeck(deck.id);
     if (status) status.textContent = `${deck.name} geladen · ${deck.categories.length} Kategorien`;
   } catch (error) {
     console.error(error);
@@ -1126,6 +1160,7 @@ async function updateLobbySettings() {
   if (!deck && selectedId === state.room?.settings?.deckId) deck = { id: selectedId, name: activeDeckName(), categories: activeCategories() };
   deck = deck || BUILTIN_DECKS[0];
   const previousDeckId = state.room?.settings?.deckId || "mlp";
+  rememberChosenDeck(deck.id);
   const totalTerms = updateTermOptions($("lobbyCategoryAmount"), deck.categories.length, Number($("lobbyCategoryAmount").value || 10));
   const updates = {
     "settings/totalTerms": totalTerms,
@@ -1665,7 +1700,10 @@ document.addEventListener("keydown", event => {
 }, true);
 
 $("answersForm").addEventListener("submit", event => event.preventDefault());
-$("deckSelect").addEventListener("change", () => refreshSetupDeckUI(10));
+$("deckSelect").addEventListener("change", () => {
+  rememberChosenDeck($("deckSelect").value);
+  refreshSetupDeckUI(10);
+});
 $("uploadDeckBtn").addEventListener("click", () => $("deckFileInput").click());
 $("deckFileInput").addEventListener("change", () => importDeckFromInput($("deckFileInput"), "setup"));
 $("lobbyDeckSelect").addEventListener("change", async () => {

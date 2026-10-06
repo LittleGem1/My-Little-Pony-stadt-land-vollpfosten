@@ -41,6 +41,7 @@
         <label class="field">
           <span>Deck auswählen <small>(für neuen Raum)</small></span>
           <select id="deckSelect" aria-label="Deck auswählen"></select>
+          <small>💜 MLP Deck und Familien Deck sind dauerhaft enthalten. Einmal wählen, immer wieder spielen!</small>
         </label>
         <label class="field">
           <span>Begriffe im Spiel <small>(für neuen Raum)</small></span>
@@ -65,8 +66,8 @@
 
       <div class="deck-manager">
         <div>
-          <strong>Eigenes Deck hinzufügen</strong>
-          <span>TXT: eine Kategorie pro Zeile · JSON: {"name":"Mein Deck","categories":["Frage 1","Frage 2"]}</span>
+          <strong>Weitere Decks hinzufügen (optional)</strong>
+          <span>MLP und Familien Deck musst du nicht hochladen. Für neue Decks: TXT: eine Kategorie pro Zeile · JSON: {"name":"Mein Deck","categories":["Frage 1","Frage 2"]}</span>
         </div>
         <input id="deckFileInput" class="hidden-file-input" type="file" accept=".txt,.json,text/plain,application/json">
         <button class="btn btn-secondary" id="uploadDeckBtn" type="button">Deck hochladen</button>
