@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#6f4cff">
+  <title>Stadt Land Vollpfosten – Multiplayer Decks</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="hero">
+      <p class="eyebrow">MULTIPLAYER · DECKS · CHAOS</p>
+      <h1>Stadt Land Vollpfosten<br><span>Multiplayer</span></h1>
+      <p class="hero-copy">Wähle ein Deck, spiele gemeinsam im Raum und erweitere das Spiel jederzeit mit eigenen Kategorien.</p>
+      <div class="connection-pill" id="connectionStatus">Verbinde mit Firebase …</div>
+    </header>
+
+    <section class="panel setup-panel" id="setupPanel">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">Multiplayer</p>
+          <h2>Raum erstellen oder beitreten</h2>
+        </div>
+        <div class="badge" id="categoryCountBadge">MLP Deck · 77 Kategorien</div>
+      </div>
+
+      <div class="profile-summary">
+        <div>
+          <strong>Dein Profil</strong>
+          <span>Dein Name und deine Siege werden in diesem Browser gespeichert.</span>
+        </div>
+        <div class="profile-wins" id="profileWinsBadge">🏆 0 Siege</div>
+      </div>
+
+      <div class="setup-grid">
+        <label class="field field-wide">
+          <span>Dein Spielername</span>
+          <input id="playerName" type="text" maxlength="24" placeholder="z. B. Little Gem" autocomplete="nickname">
+        </label>
+        <div class="field">
+          <span>Deck auswählen <small>(für neuen Raum)</small></span>
+          <select id="deckSelect" class="deck-native-select-hidden" aria-hidden="true" tabindex="-1"></select>
+          <div id="deckChoiceSetup" class="deck-choice-grid" role="radiogroup" aria-label="Deck auswählen"></div>
+          <small class="helper compact">Klick einfach auf ein Deck. Das ausgewählte Deck leuchtet und wird in Regenbogen-Schrift markiert.</small>
+        </div>
+        <label class="field">
+          <span>Begriffe im Spiel <small>(für neuen Raum)</small></span>
+          <select id="categoryAmount"><option value="10">10 Begriffe</option></select>
+        </label>
+        <div class="field">
+          <span>Rundenzeit <small>(gilt für jede Runde)</small></span>
+          <input id="timerLength" type="hidden" value="90">
+          <div class="time-choice" data-time-group="timerLength" aria-label="Rundenzeit wählen">
+            <button class="time-option" type="button" data-seconds="60">60 s</button>
+            <button class="time-option selected" type="button" data-seconds="90">90 s</button>
+            <button class="time-option" type="button" data-seconds="120">120 s</button>
+            <button class="time-option" type="button" data-seconds="180">180 s</button>
+          </div>
+          <label class="pressure-toggle">
+            <input id="noTimePressure" type="checkbox">
+            <span class="toggle-track" aria-hidden="true"><span></span></span>
+            <span class="toggle-copy"><strong>Ohne Stop</strong><small>Der Timer läuft normal. Niemand kann STOP drücken. Ende bei 0:00 oder sobald alle abgeschickt haben.</small></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="deck-manager">
+        <div>
+          <strong>Optional: weiteres eigenes Deck hinzufügen</strong>
+          <span>TXT: eine Kategorie pro Zeile · JSON: {"name":"Mein Deck","categories":["Frage 1","Frage 2"]}</span>
+        </div>
+        <input id="deckFileInput" class="hidden-file-input" type="file" accept=".txt,.json,text/plain,application/json">
+        <button class="btn btn-secondary" id="uploadDeckBtn" type="button">Deck hochladen</button>
+        <span class="deck-upload-status" id="deckUploadStatus" aria-live="polite"></span>
+      </div>
+
+      <div class="uploaded-decks-card">
+        <div class="uploaded-decks-head">
+          <div>
+            <strong>Eigene hochgeladene Decks verwalten</strong>
+            <span>MLP Deck und Familien Deck sind fest eingebaut und können nicht gelöscht werden.</span>
+          </div>
+        </div>
+        <div id="uploadedDeckList" class="uploaded-deck-list" aria-live="polite"></div>
+      </div>
+
+      <div class="level-preview">
+        <strong>So läuft ein 10er-Levelblock:</strong>
+        <span>4 Fragen / 4 Buchstaben → 3 Fragen einzeln → 2 Fragen / 1 Buchstabe → 1 Frage / 2 Antworten. Die gewählte Rundenzeit startet bei jedem neuen Abschnitt wieder von vorn. Mit „Ohne Stop“ endet ein Abschnitt nur bei 0:00 oder sobald alle abgeschickt haben.</span>
+      </div>
+
+      <div class="room-actions">
+        <div class="room-card">
+          <h3>Neuen Raum erstellen</h3>
+          <p>Du wirst Host und startest die Level.</p>
+          <button class="btn btn-primary" id="createRoomBtn" type="button">Raum erstellen</button>
+        </div>
+        <div class="room-card">
+          <h3>Vorhandenem Raum beitreten</h3>
+          <label class="field compact-field">
+            <span>Raumcode</span>
+            <input id="roomCodeInput" type="text" maxlength="6" placeholder="PONY42" autocomplete="off" inputmode="text">
+          </label>
+          <button class="btn btn-secondary" id="joinRoomBtn" type="button">Raum beitreten</button>
+        </div>
+      </div>
+
+      <p class="status-message" id="setupMessage" aria-live="polite"></p>
+      <div class="button-row">
+        <button class="btn btn-ghost" id="showCategoriesBtn" type="button">Alle Kategorien ansehen</button>
+      </div>
+    </section>
+
+    <section class="panel lobby-panel hidden" id="lobbyPanel">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">Warteraum</p>
+          <h2>Raum <span id="lobbyRoomCode">------</span></h2>
+          <p class="helper compact">Teile den Code mit deinen Mitspielern.</p>
+        </div>
+        <div class="badge" id="roleBadge">Spieler</div>
+      </div>
+
+      <div class="lobby-grid">
+        <div>
+          <h3>Spieler im Raum</h3>
+          <div id="playerList" class="player-list"></div>
+        </div>
+        <div class="settings-card">
+          <h3>Spieleinstellungen</h3>
+          <div class="field">
+            <span>Deck für alle Spieler</span>
+            <select id="lobbyDeckSelect" class="deck-native-select-hidden" aria-hidden="true" tabindex="-1"></select>
+            <div id="deckChoiceLobby" class="deck-choice-grid lobby-deck-choice" role="radiogroup" aria-label="Deck im Raum"></div>
+            <small class="helper compact">Beide Standarddecks sind dauerhaft verfügbar. Nur der Host kann wechseln.</small>
+          </div>
+          <div class="lobby-deck-upload host-only hidden">
+            <input id="lobbyDeckFileInput" class="hidden-file-input" type="file" accept=".txt,.json,text/plain,application/json">
+            <button class="btn btn-small btn-secondary" id="lobbyUploadDeckBtn" type="button">Neues Deck hochladen</button>
+            <span class="deck-upload-status" id="lobbyDeckUploadStatus" aria-live="polite"></span>
+          </div>
+          <label class="field">
+            <span>Begriffe im Spiel</span>
+            <select id="lobbyCategoryAmount"><option value="10">10 Begriffe</option></select>
+          </label>
+          <div class="field">
+            <span>Rundenzeit <small>(gilt immer wieder neu)</small></span>
+            <input id="lobbyTimerLength" type="hidden" value="90">
+            <div class="time-choice" data-time-group="lobbyTimerLength" aria-label="Rundenzeit wählen">
+              <button class="time-option" type="button" data-seconds="60">60 s</button>
+              <button class="time-option selected" type="button" data-seconds="90">90 s</button>
+              <button class="time-option" type="button" data-seconds="120">120 s</button>
+              <button class="time-option" type="button" data-seconds="180">180 s</button>
+            </div>
+            <label class="pressure-toggle">
+              <input id="lobbyNoTimePressure" type="checkbox">
+              <span class="toggle-track" aria-hidden="true"><span></span></span>
+              <span class="toggle-copy"><strong>Ohne Stop</strong><small>Der Countdown bleibt aktiv. Niemand kann vorzeitig STOP drücken; alle können bis 0:00 schreiben oder früher abschicken.</small></span>
+            </label>
+          </div>
+          <p class="helper compact" id="hostSettingsHint">Nur der Host kann diese Einstellungen ändern.</p>
+        </div>
+      </div>
+
+      <div class="button-row">
+        <button class="btn btn-primary host-only hidden" id="hostStartBtn" type="button">Spiel starten</button>
+        <button class="btn btn-secondary" id="leaveRoomBtn" type="button">Raum verlassen</button>
+      </div>
+    </section>
+
+    <section class="panel game-panel hidden" id="gamePanel">
+      <div class="round-topbar">
+        <div>
+          <p class="kicker" id="roundLabel">Level 1 · Raum ------</p>
+          <h2 id="playerDisplay">Los geht's!</h2>
+          <p class="level-instruction" id="levelInstruction"></p>
+        </div>
+        <div class="game-stats">
+          <div class="stat-card letter-card">
+            <span id="letterStatLabel">Buchstabe</span>
+            <strong id="letterDisplay">A</strong>
+          </div>
+          <div class="stat-card timer-card" id="timerCard">
+            <span id="timerStatLabel">Zeit</span>
+            <strong id="timerDisplay">01:30</strong>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="letter-actions host-only hidden" id="hostRoundControls">
+        <button class="btn btn-small btn-secondary" id="newLetterBtn" type="button">Buchstaben neu ziehen</button>
+        <button class="btn btn-small btn-secondary" id="restartTimerBtn" type="button">Timer für alle neu</button>
+      </div>
+
+      <form id="answersForm" class="answer-list"></form>
+
+      <div class="button-row sticky-actions">
+        <button class="btn btn-danger" id="stopRoundBtn" type="button" aria-label="Runde frühzeitig für alle beenden">🛑 Runde frühzeitig beenden</button>
+      </div>
+      <p class="helper centered" id="stopHint">Jeder Spieler kann STOP drücken.</p>
+    </section>
+
+    <section class="panel score-panel hidden" id="scorePanel">
+      <div class="section-heading">
+        <div>
+          <p class="kicker" id="scoreRoundLabel">Auswertung · Level 1</p>
+          <h2>Antworten vergleichen</h2>
+        </div>
+
+      </div>
+      <div class="score-rules" aria-label="Erklärung der Punktevergabe">
+        <p class="score-rules-title">Punktevergabe: 0 / 5 / 10 / 20 / 30 Punkte</p>
+        <div class="score-highlight-30" role="note">
+          <strong>⭐ 30 Punkte:</strong> Begriff passt und niemand sonst hat bei dieser Kategorie ein Wort.
+        </div>
+        <div class="score-rules-grid">
+          <div class="score-rule rule-0"><strong>0 Punkte</strong><span>Gar nichts oder ein unpassender Begriff</span></div>
+          <div class="score-rule rule-5"><strong>5 Punkte</strong><span>Wenn sich darüber streiten lässt, ob der Begriff passt</span></div>
+          <div class="score-rule rule-10"><strong>10 Punkte</strong><span>Bei einem doppelten Wort</span></div>
+          <div class="score-rule rule-20"><strong>20 Punkte</strong><span>Wenn der Begriff passt</span></div>
+          <div class="score-rule rule-30"><strong>30 Punkte</strong><span>Wenn der Begriff passt und niemand sonst dort ein Wort hat</span></div>
+        </div>
+        <p class="helper score-rules-note">Du bewertest <strong>nur die Antworten der anderen Spieler</strong> – niemals deine eigene. Bei mehr als zwei Spielern zählt pro Antwort der Durchschnitt der erhaltenen Bewertungen.</p>
+      </div>
+      <p class="status-message score-message" id="scoreMessage" aria-live="polite"></p>
+      <div id="scoreList" class="score-list multiplayer-score-list"></div>
+      <div class="ready-row">
+        <button class="btn btn-secondary" id="readyBtn" type="button">Meine Bewertung ist fertig</button>
+        <span id="readyStatus" class="helper compact">0/0 Spieler fertig</span>
+      </div>
+      <div class="button-row">
+        <button class="btn btn-primary host-only hidden" id="nextRoundBtn" type="button">Nächstes Level starten</button>
+        <button class="btn btn-secondary host-only hidden" id="finishGameBtn" type="button">Spiel vorzeitig beenden</button>
+      </div>
+      <p class="helper centered non-host-wait hidden" id="waitForHostText">Warte darauf, dass der Host das nächste Level startet.</p>
+    </section>
+
+    <section class="panel end-panel hidden" id="endPanel">
+      <p class="kicker">Spiel beendet</p>
+      <h2>Spiel abgeschlossen!</h2>
+      <div class="winner-inline" id="winnerCelebrationInline" aria-live="polite">
+        <img class="winner-inline-gif" id="winnerGifInline" src="winner-01.gif" alt="Animierte Pony-Siegerfeier">
+        <div>
+          <p class="kicker">Gewinner</p>
+          <h3 id="winnerInlineTitle">Champion!</h3>
+          <strong id="winnerInlineName">Little Gem</strong>
+          <span id="winnerInlineScore">0 Punkte</span>
+        </div>
+      </div>
+      <div id="leaderboard" class="leaderboard"></div>
+      <div class="button-row">
+        <button class="btn btn-primary host-only hidden" id="backToLobbyBtn" type="button">Zurück in die Lobby</button>
+        <button class="btn btn-secondary" id="leaveRoomFromEndBtn" type="button">Raum verlassen</button>
+      </div>
+    </section>
+
+    <dialog id="categoriesDialog" class="categories-dialog">
+      <div class="dialog-head">
+        <div>
+          <p class="kicker">Masterliste</p>
+          <h2 id="categoriesDialogTitle">Alle Kategorien</h2>
+        </div>
+        <button class="icon-btn" id="closeDialogBtn" type="button" aria-label="Schließen">✕</button>
+      </div>
+      <div class="dialog-tools">
+        <input id="categorySearch" type="search" placeholder="Kategorie suchen …">
+        <span id="dialogCount">0</span>
+      </div>
+      <ol id="categoriesList" class="categories-list"></ol>
+    </dialog>
+
+    <div class="winner-popup hidden" id="winnerPopup" role="dialog" aria-modal="true" aria-labelledby="winnerTitle">
+      <div class="winner-card">
+        <button class="winner-close" id="winnerCloseBtn" type="button" aria-label="Gewinner-Fenster schließen"><span aria-hidden="true">✕</span></button>
+        <img class="winner-gif" id="winnerGif" src="winner-01.gif" alt="Animierte Pony-Siegerfeier">
+        <p class="kicker">Gewinner</p>
+        <h2 id="winnerTitle">Champion!</h2>
+        <p id="winnerName">Little Gem</p>
+        <span id="winnerScore">0 Punkte</span>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    Privates Fan-Spiel · Das MLP-Deck ist inoffiziell und steht in keiner Verbindung zu Hasbro oder offiziellen Markeninhabern.
+  </footer>
+
+  <script type="module" src="script.js"></script>
+</body>
+</html>
