@@ -210,7 +210,21 @@
         </div>
 
       </div>
-      <p class="helper">Vergleicht eure Antworten gemeinsam. Du bewertest <strong>nur die Antworten der anderen Spieler</strong> – niemals deine eigene. 20 = einzigartig, 10 = gültig aber doppelt, 5 = diskutabel, 0 = nope. Bei mehr als zwei Spielern zählt pro Antwort der Durchschnitt der erhaltenen Bewertungen.</p>
+      <p class="helper"><strong>Punktevergabe:</strong> 0 = gar nichts oder unpassender Begriff · 5 = wenn sich streiten lässt, ob der Begriff passt · 10 = doppeltes Wort · 20 = Begriff passt · <strong>30 = Begriff passt und niemand sonst hat bei dieser Kategorie ein Wort.</strong> Bei mehr als zwei Spielern zählt pro Antwort der Durchschnitt der erhaltenen Bewertungen.</p>
+      <div class="score-rules" aria-label="Erklärung der Punktevergabe">
+        <p class="score-rules-title">Punktevergabe: 0 / 5 / 10 / 20 / 30 Punkte</p>
+        <div class="score-highlight-30" role="note">
+          <strong>⭐ 30 Punkte:</strong> Begriff passt und niemand sonst hat bei dieser Kategorie ein Wort.
+        </div>
+        <div class="score-rules-grid">
+          <div class="score-rule rule-0"><strong>0 Punkte</strong><span>Gar nichts oder ein unpassender Begriff</span></div>
+          <div class="score-rule rule-5"><strong>5 Punkte</strong><span>Wenn sich darüber streiten lässt, ob der Begriff passt</span></div>
+          <div class="score-rule rule-10"><strong>10 Punkte</strong><span>Bei einem doppelten Wort</span></div>
+          <div class="score-rule rule-20"><strong>20 Punkte</strong><span>Wenn der Begriff passt</span></div>
+          <div class="score-rule rule-30"><strong>30 Punkte</strong><span>Wenn der Begriff passt und niemand sonst dort ein Wort hat</span></div>
+        </div>
+        <p class="helper score-rules-note">Du bewertest <strong>nur die Antworten der anderen Spieler</strong> – niemals deine eigene. Bei mehr als zwei Spielern zählt pro Antwort der Durchschnitt der erhaltenen Bewertungen.</p>
+      </div>
       <p class="status-message score-message" id="scoreMessage" aria-live="polite"></p>
       <div id="scoreList" class="score-list multiplayer-score-list"></div>
       <div class="ready-row">

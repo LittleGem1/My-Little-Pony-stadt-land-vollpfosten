@@ -1050,3 +1050,79 @@ footer { width: min(1100px, calc(100% - 28px)); margin: 0 auto; padding: 0 0 34p
 }
 
 /* V22: Countdown bleibt auch bei Live-Antwort-Sync und im Ohne-Stop-Modus aktiv. */
+
+
+/* V23: gut sichtbare Erklärung der Punktevergabe */
+.score-rules {
+  margin: 4px 0 18px;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 16px;
+  background: rgba(255,255,255,.045);
+}
+.score-rules-title {
+  margin: 0 0 10px;
+  font-weight: 900;
+  color: var(--text);
+}
+.score-rules-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.score-rule {
+  min-width: 0;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.09);
+  background: rgba(0,0,0,.14);
+}
+.score-rule strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: .98rem;
+}
+.score-rule span {
+  display: block;
+  color: var(--muted);
+  font-size: .84rem;
+  line-height: 1.35;
+}
+.score-rule.rule-0 strong { color: #ff7c8e; }
+.score-rule.rule-5 strong { color: #f2b76b; }
+.score-rule.rule-10 strong { color: #d5c7ff; }
+.score-rule.rule-20 strong { color: #6ee0a8; }
+.score-rule.rule-30 {
+  border-color: rgba(255,217,120,.42);
+  background: linear-gradient(135deg, rgba(255,217,120,.10), rgba(255,126,210,.07));
+}
+.score-rule.rule-30 strong { color: var(--gold); }
+.score-rules-note {
+  margin: 12px 0 0 !important;
+}
+@media (max-width: 900px) {
+  .score-rules-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .score-rule.rule-30 { grid-column: 1 / -1; }
+}
+@media (max-width: 520px) {
+  .score-rules { padding: 12px; }
+  .score-rules-grid { grid-template-columns: 1fr; }
+  .score-rule.rule-30 { grid-column: auto; }
+}
+
+
+/* V24: 30-Punkte-Regel direkt und unübersehbar über der Auswertung. */
+.score-highlight-30 {
+  margin: 10px 0 14px;
+  padding: 12px 14px;
+  border: 2px solid rgba(255, 210, 75, .72);
+  border-radius: 14px;
+  background: rgba(255, 210, 75, .12);
+  color: #fff7cf;
+  font-weight: 800;
+  line-height: 1.4;
+}
+.score-highlight-30 strong {
+  color: var(--gold);
+  font-weight: 950;
+}
